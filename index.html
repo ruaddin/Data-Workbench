@@ -669,8 +669,10 @@ dialog h2 .ver{font-family:var(--font-mono);font-size:11.5px;font-weight:400;col
             and can be exploded.</li>
         <li><strong>Embedded JSON can be repaired and unpacked.</strong> A path holding stringified JSON gets a
             <em>parse as JSON</em> toggle: values are repaired by a deterministic verify-loop — a fix is only
-            accepted when the result actually parses — and the discovered structure is grafted into the tree.
-            Anything unfixable is listed as residue.</li>
+            accepted when the result actually parses, and content is never altered to get there — and the
+            discovered structure is grafted into the tree. Anything unfixable is listed as residue, each value
+            labelled with why: <em>cut off mid-structure</em>, <em>two roots concatenated</em>,
+            <em>not JSON at all</em>, or <em>no reading that parses</em>.</li>
         <li><strong>Redact</strong> strips previews, enums and value labels from the tree, Stats and Path detail,
             and from the structural exports. It deliberately does <em>not</em> blank the preview table or the
             exported data — it is a report-hygiene switch, not a screen-share switch.</li>
@@ -1404,11 +1406,27 @@ function valueRefs(record, steps){
 
 /* ==========================================================================
    DW.fix — the scripted JSON repairer (W7, W8)
-   A tokenizer that tolerates exactly the input JSON.parse rejects, twelve rules
-   expressed as span edits on the original text, and a verify-loop in which a fix
-   is accepted only when the result parses. Every untouched byte is untouched by
-   construction, which is what makes "preserve spacing and structure exactly" a
-   guarantee rather than a request.
+   A tokenizer that tolerates exactly the input JSON.parse rejects, deterministic
+   rules expressed as span edits on the original text, and a bounded search in
+   which a fix is accepted only when the result parses. Every untouched byte is
+   untouched by construction, which is what makes "preserve spacing and structure
+   exactly" a guarantee rather than a request.
+
+   Three things the v1.1.0 fixer got wrong and this one does not (v1.2.0):
+
+   - **The engine is not asked where the parse failed.** `validate()` walks the
+     token stream and reports the offset itself. The old code read V8's
+     "position N" out of the message text, which JavaScriptCore does not emit —
+     rule 12 was silently dead in Safari and nowhere else.
+   - **Parsing is necessary but not sufficient for acceptance.** A repair can
+     parse and still mean something else: `{"a":1}{"b":2}` was being "fixed" into
+     one object with the key `a':1}{'b`. Structurally hopeless input is now
+     classified and refused up front, and string-extending candidates may not
+     swallow unbalanced brackets.
+   - **One pass with a hardcoded rule pairing does not compose.** Rules now run to
+     a fixpoint and the ambiguous rules are a bounded search over that, so a value
+     needing a fence stripped, a brace pair peeled and quotes converted comes out
+     in one go.
    ========================================================================== */
 
 const fix = (function(){
@@ -1417,6 +1435,13 @@ const CLOSER = {'"':'"', "'":"'", "“":"”", "”":"”", "‘":"’", "’":"
 const QUOTES = '"\'“”‘’';
 const PUNCT  = '{}[]:,=';
 const INVIS  = /[\uFEFF\u00A0\u2007\u202F\u200B\u200C\u200D\u2060]/;
+
+// Search limits. The budget counts parse attempts, which is what actually costs
+// at 500 MB scale; long values get a smaller one because each attempt on a
+// 200k-character value is orders of magnitude dearer than on a short one.
+const DEPTH = 2;
+const BIG = 50000;
+function budgetFor(text){ return text.length > BIG ? 40 : 400; }
 
 // Tolerant scanner. Must never throw: it exists to describe malformed text.
 function tokenize(text){
@@ -1488,15 +1513,104 @@ function innerOf(text, tk){
 
 const NUMERIC = /^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?$/;
 const LITERAL = {"true":1, "false":1, "null":1};
+const PY = {True:"true", False:"false", None:"null", undefined:"null", NaN:"null",
+            TRUE:"true", FALSE:"false", NULL:"null", Null:"null", nil:"null",
+            Infinity:"null", "-Infinity":"null", inf:"null", "-inf":"null"};
 
 function nonComment(T){ return T.filter(function(t){ return t.t !== "c"; }); }
 
-/* --- the deterministic rules, each a pure text → text|null --- */
+// A bare word that could stand as a JSON scalar once the deterministic rules have
+// had their turn. Used only to tell "this is broken JSON" from "this is prose".
+function scalarWord(v){ return NUMERIC.test(v) || has(LITERAL, v) || has(PY, v); }
+
+/* ==========================================================================
+   validate — where the parse breaks, and why, without asking the engine.
+   Returns {pos, cause}. `cause` is null when the token stream walks as valid
+   JSON structure; that is not the same as parsing (raw control characters and
+   bad escapes walk fine and still fail JSON.parse), so JSON.parse remains the
+   only thing that can accept a repair. This exists to aim the search and to
+   classify residue.
+   ========================================================================== */
+
+function validate(text){
+  const T = nonComment(tokenize(text));
+  if(!T.length) return {pos:0, cause:"not json"};
+
+  // A root bare word that is not a scalar is prose — but only when there is no
+  // object or array anywhere in the value. A fenced block opens on ```json and a
+  // model's preamble opens on "Here is the JSON:"; both are damaged JSON with
+  // something wrapped around it, and both have a `{` further in.
+  const rootIsWord = T[0].t === "w" && !scalarWord(T[0].v);
+  if(rootIsWord){
+    let structural = false;
+    for(const t of T) if(t.t === "p" && (t.v === "{" || t.v === "[")){ structural = true; break; }
+    if(!structural) return {pos:T[0].s, cause:"not json"};
+  }
+
+  const stack = [];
+  let st = "value";
+  for(let i = 0; i < T.length; i++){
+    const t = T[i];
+    if(t.t === "s" && !t.closed) return {pos:t.s, cause:"truncated"};
+    const top = stack[stack.length - 1];
+
+    if(st === "value"){
+      if(t.t === "p" && t.v === "["){ stack.push("arr"); st = "value"; continue; }
+      if(t.t === "p" && t.v === "{"){ stack.push("obj"); st = "key"; continue; }
+      if(t.t === "p" && t.v === "]" && top === "arr"){ stack.pop(); st = "comma"; continue; }
+      if(t.t === "s" || t.t === "w"){ st = "comma"; continue; }
+      return {pos:t.s, cause:"unexpected"};
+    }
+    if(st === "key"){
+      if(t.t === "p" && t.v === "}" && top === "obj"){ stack.pop(); st = "comma"; continue; }
+      if(t.t === "s" || t.t === "w"){ st = "colon"; continue; }
+      return {pos:t.s, cause:"unexpected"};
+    }
+    if(st === "colon"){
+      if(t.t === "p" && (t.v === ":" || t.v === "=")){ st = "value"; continue; }
+      return {pos:t.s, cause:"unexpected"};
+    }
+    // st === "comma": a value just completed
+    if(t.t === "p" && t.v === ","){ st = top === "obj" ? "key" : "value"; continue; }
+    if(t.t === "p" && t.v === "}" && top === "obj"){ stack.pop(); st = "comma"; continue; }
+    if(t.t === "p" && t.v === "]" && top === "arr"){ stack.pop(); st = "comma"; continue; }
+    if(!stack.length){
+      // The root value is complete and there is more text. Another root is the
+      // spec's leave-unchanged case; a trailing bare word is a model signing off.
+      // ...but only if what completed was a real root. A leading bare word is a
+      // fence or a preamble, and the object after it is the payload, not a
+      // second root.
+      const more = (t.t === "p" && (t.v === "{" || t.v === "[")) || t.t === "s" ||
+                   (t.t === "w" && scalarWord(t.v));
+      return {pos:t.s, cause: (more && !rootIsWord) ? "concatenated-roots" : "unexpected"};
+    }
+    return {pos:t.s, cause:"unexpected"};
+  }
+  if(stack.length || st !== "comma") return {pos:text.length, cause:"truncated"};
+  return {pos:-1, cause:null};
+}
+
+const CAUSE_TEXT = {
+  "truncated":          "value is cut off — the JSON ends mid-structure",
+  "concatenated-roots": "two or more root values concatenated — left unchanged by design",
+  "not json":           "not JSON — no object, array or scalar at the root",
+  "unexpected":         "structure does not parse and no candidate repair did either",
+  "empty value":        "empty value",
+  "not a string":       "not a string"
+};
+
+/* ==========================================================================
+   The deterministic rules. Each is a pure text → text|null; null means "did not
+   fire". Every one opens with a cheap substring guard, because they run to a
+   fixpoint and tokenising a 200k-character value thirteen times per pass for
+   nothing is the difference between instant and not.
+   ========================================================================== */
 
 const rules = {
   // 11 · BOM, NBSP, invisible whitespace — outside strings only, where they are
   // punctuation-shaped rather than content.
   invisible(text){
+    if(!INVIS.test(text)) return null;
     const T = tokenize(text);
     const mask = new Uint8Array(text.length);
     for(const t of T) if(t.t === "s") for(let i = t.s; i < t.e; i++) mask[i] = 1;
@@ -1509,8 +1623,19 @@ const rules = {
     return hit ? out : null;
   },
 
+  // 13 · markdown code fences. A model told to emit JSON emits a fenced block
+  // often enough that this is a rule and not a curiosity.
+  fences(text){
+    if(text.indexOf("```") < 0) return null;
+    const m = /^\s*```[A-Za-z0-9_+-]*[ \t]*\r?\n?([\s\S]*?)\r?\n?[ \t]*```\s*$/.exec(text);
+    if(m) return m[1].trim();
+    const open = /^\s*```[A-Za-z0-9_+-]*[ \t]*\r?\n?/.exec(text);   // opened, never closed
+    return open ? text.slice(open[0].length).trim() : null;
+  },
+
   // 10 · // and /* */ comments
   comments(text){
+    if(text.indexOf("//") < 0 && text.indexOf("/*") < 0) return null;
     const edits = [];
     for(const t of tokenize(text)) if(t.t === "c") edits.push({s:t.s, e:t.e, t:""});
     return edits.length ? applyEdits(text, edits) : null;
@@ -1518,6 +1643,7 @@ const rules = {
 
   // 4 · trailing comma before } or ]
   trailingComma(text){
+    if(text.indexOf(",") < 0) return null;
     const T = nonComment(tokenize(text));
     const edits = [];
     for(let i = 0; i < T.length - 1; i++){
@@ -1528,20 +1654,19 @@ const rules = {
     return edits.length ? applyEdits(text, edits) : null;
   },
 
-  // 9 · True / False / None / undefined → JSON literals (outside strings by
-  // construction: only bare-word tokens are considered)
+  // 9 · True / False / None / undefined / NaN / Infinity → JSON literals (outside
+  // strings by construction: only bare-word tokens are considered)
   pythonLiterals(text){
-    const MAP = {True:"true", False:"false", None:"null", undefined:"null", NaN:"null",
-                 TRUE:"true", FALSE:"false", NULL:"null", Null:"null", nil:"null"};
     const edits = [];
     for(const t of tokenize(text)){
-      if(t.t === "w" && has(MAP, t.v)) edits.push({s:t.s, e:t.e, t:MAP[t.v]});
+      if(t.t === "w" && has(PY, t.v)) edits.push({s:t.s, e:t.e, t:PY[t.v]});
     }
     return edits.length ? applyEdits(text, edits) : null;
   },
 
   // 8 · = used where : belongs
   equalsColon(text){
+    if(text.indexOf("=") < 0) return null;
     const edits = [];
     for(const t of tokenize(text)) if(t.t === "p" && t.v === "=") edits.push({s:t.s, e:t.e, t:":"});
     return edits.length ? applyEdits(text, edits) : null;
@@ -1551,6 +1676,7 @@ const rules = {
   // construction: the tokenizer only opens a string on a curly quote at a token
   // boundary, so a curly quote inside a double-quoted value is never touched.
   smartQuotes(text){
+    if(!/[“”‘’]/.test(text)) return null;
     const edits = [];
     for(const t of tokenize(text)){
       if(t.t === "s" && t.q !== '"' && t.q !== "'") edits.push({s:t.s, e:t.e, t:quoteStr(innerOf(text, t))});
@@ -1560,6 +1686,7 @@ const rules = {
 
   // 1 · single → double quotes on keys and values
   singleQuotes(text){
+    if(text.indexOf("'") < 0) return null;
     const edits = [];
     for(const t of tokenize(text)){
       if(t.t === "s" && t.q === "'") edits.push({s:t.s, e:t.e, t:quoteStr(innerOf(text, t))});
@@ -1579,9 +1706,12 @@ const rules = {
     return edits.length ? applyEdits(text, edits) : null;
   },
 
-  // 7 · unquoted bare-word values that are not number / bool / null
+  // 7 · unquoted bare-word values that are not number / bool / null. Never at the
+  // root: a lone bare word there is prose, and quoting it would turn "sorry, I
+  // can't help with that" into a successful parse.
   bareValues(text){
     const T = nonComment(tokenize(text));
+    if(T.length === 1 && T[0].t === "w") return null;
     const edits = [];
     for(let i = 0; i < T.length; i++){
       const t = T[i];
@@ -1590,10 +1720,65 @@ const rules = {
       if(NUMERIC.test(t.v) || has(LITERAL, t.v)) continue;
       // A bare run wedged directly against a string on either side is not a bare
       // value — it is text that fell out of a string whose quoting went wrong.
-      // Leave it for rule 12, which is the rule that can actually read it.
+      // Leave it for the extend-string search, which can actually read it.
       if(T[i-1] && T[i-1].t === "s" && T[i-1].e === t.s) continue;
       if(T[i+1] && T[i+1].t === "s" && T[i+1].s === t.e) continue;
       edits.push({s:t.s, e:t.e, t:quoteStr(t.v)});
+    }
+    return edits.length ? applyEdits(text, edits) : null;
+  },
+
+  // 14 · raw control characters inside strings. A model emitting multi-line
+  // reasoning into a JSON string produces these constantly.
+  controlChars(text){
+    if(!/[\u0000-\u001F]/.test(text)) return null;
+    const edits = [];
+    for(const t of tokenize(text)){
+      if(t.t !== "s") continue;
+      const s = t.s + 1, e = t.closed ? t.e - 1 : t.e;
+      let out = "", hit = false;
+      for(let i = s; i < e; i++){
+        const c = text[i];
+        if(c === "\\"){ out += c + (text[i+1] || ""); i++; continue; }
+        const cc = c.charCodeAt(0);
+        if(cc < 0x20){
+          hit = true;
+          out += cc === 10 ? "\\n" : cc === 9 ? "\\t" : cc === 13 ? "\\r" :
+                 "\\u" + ("000" + cc.toString(16)).slice(-4);
+        } else out += c;
+      }
+      if(hit) edits.push({s:s, e:e, t:out});
+    }
+    return edits.length ? applyEdits(text, edits) : null;
+  },
+
+  // 15 · invalid escapes inside double-quoted strings. All-or-nothing per string:
+  // a value containing `\d` was not written with JSON escaping in mind, so its
+  // `\b` is a Windows path separator and not a backspace. Runs on `"` strings
+  // only — single-quoted ones are re-emitted through JSON.stringify by rule 1,
+  // which produces valid escapes by construction.
+  badEscapes(text){
+    if(text.indexOf("\\") < 0) return null;
+    const VALID = '"\\/bfnrtu';
+    const edits = [];
+    for(const t of tokenize(text)){
+      if(t.t !== "s" || t.q !== '"') continue;
+      const s = t.s + 1, e = t.closed ? t.e - 1 : t.e;
+      let bad = false;
+      for(let i = s; i < e; i++){
+        if(text[i] !== "\\") continue;
+        const n = text[i+1];
+        if(n === undefined || VALID.indexOf(n) < 0){ bad = true; break; }
+        if(n === "u" && !/^[0-9a-fA-F]{4}/.test(text.slice(i+2, i+6))){ bad = true; break; }
+        i++;
+      }
+      if(!bad) continue;
+      let out = "";
+      for(let i = s; i < e; i++){
+        if(text[i] === "\\" && text[i+1] === "\\"){ out += "\\\\"; i++; continue; }
+        out += text[i] === "\\" ? "\\\\" : text[i];
+      }
+      edits.push({s:s, e:e, t:out});
     }
     return edits.length ? applyEdits(text, edits) : null;
   },
@@ -1606,33 +1791,68 @@ const rules = {
     const opens = function(t){ return t.t === "s" || t.t === "w" || (t.t === "p" && (t.v === "{" || t.v === "[")); };
     const edits = [];
     for(let i = 0; i < T.length - 1; i++){
-      if(ends(T[i]) && opens(T[i+1])) edits.push({s:T[i].e, e:T[i].e, t:","});
+      if(!ends(T[i]) || !opens(T[i+1])) continue;
+      // A string and a bare word with nothing at all between them is not a
+      // missing comma — it is a string that lost its closing quote. Inserting
+      // here would destroy the reading the extend-string search is about to
+      // find, so leave it, exactly as bareValues does for the same shape.
+      if(T[i].e === T[i+1].s &&
+         ((T[i].t === "s" && T[i+1].t === "w") || (T[i].t === "w" && T[i+1].t === "s"))) continue;
+      edits.push({s:T[i].e, e:T[i].e, t:","});
     }
     return edits.length ? applyEdits(text, edits) : null;
   }
 };
 
-const ORDER = ["invisible", "comments", "trailingComma", "pythonLiterals", "equalsColon",
-               "smartQuotes", "singleQuotes", "unquotedKeys", "bareValues", "missingCommas"];
+// Order matters: shells off (fences), then lexical normalisation, then the rules
+// that read structure. `bareValues` and `missingCommas` go last because they are
+// the two that will happily act on text the earlier rules would have re-quoted.
+const ORDER = ["fences", "invisible", "comments", "controlChars", "trailingComma",
+               "pythonLiterals", "equalsColon", "smartQuotes", "singleQuotes",
+               "badEscapes", "unquotedKeys", "bareValues", "missingCommas"];
 
-/* --- the two ambiguous searches --- */
-
-function parseErr(text){
-  try{ JSON.parse(text); return null; }
-  catch(e){
-    const m = /position (\d+)/.exec(e.message);
-    return {msg:e.message, pos: m ? +m[1] : -1};
+// Deterministic rules to a fixpoint. Returns as soon as the text parses, so the
+// common case pays for one pass and not three.
+function detFixpoint(text){
+  let cur = text;
+  for(let pass = 0; pass < 3; pass++){
+    let fired = false;
+    for(const name of ORDER){
+      const next = rules[name](cur);
+      if(next === null || next === cur) continue;
+      cur = next;
+      fired = true;
+      if(parses(cur)) return cur;
+    }
+    if(!fired) break;
   }
+  return cur;
 }
 
-// 3 · extra / duplicate / stray brackets. Candidate removal, resolved by the
-// verify-loop. Adjacent duplicates and the outermost pair are tried first,
-// because those are what actually goes wrong.
-function strayBrackets(text){
+/* ==========================================================================
+   The ambiguous rules. Each yields candidate readings rather than an answer;
+   the search decides, and only a successful JSON.parse accepts.
+   ========================================================================== */
+
+// 3 · extra / duplicate / stray brackets. The outer pair goes first because
+// wrapping an array in braces — `{ [ ... ] }` — is the single most common shape
+// a model produces, and it needs two deletions that no single-deletion search
+// can reach.
+function bracketCandidates(text){
+  const out = [];
+  // Peel the outer pair first, and do it on the characters rather than the
+  // tokens: an unterminated quote further in swallows the closing brackets into
+  // a string token, so the token stream cannot see a pair that is plainly there
+  // in the text. `{ [ ... ] }` with a broken string inside is exactly that case.
+  const t = text.trim();
+  const a = t[0], z = t[t.length - 1];
+  if(t.length > 2 && (a === "{" || a === "[") && (z === "}" || z === "]"))
+    out.push([t.slice(1, -1), "bracketPair"]);
+
   const T = nonComment(tokenize(text));
   const brackets = [];
-  for(const t of T) if(t.t === "p" && "{}[]".indexOf(t.v) >= 0) brackets.push(t);
-  if(brackets.length < 2) return null;
+  for(const tk of T) if(tk.t === "p" && "{}[]".indexOf(tk.v) >= 0) brackets.push(tk);
+  if(brackets.length < 2) return out;
   const score = function(idx){
     const t = brackets[idx];
     const prev = brackets[idx-1], next = brackets[idx+1];
@@ -1642,39 +1862,83 @@ function strayBrackets(text){
   };
   const order = brackets.map(function(_, i){ return i; })
                         .sort(function(a, b){ return score(a) - score(b) || a - b; })
-                        .slice(0, 100);
+                        .slice(0, 30);
   for(const idx of order){
     const t = brackets[idx];
-    const out = text.slice(0, t.s) + text.slice(t.e);
-    if(parses(out)) return out;
+    out.push([text.slice(0, t.s) + text.slice(t.e), "strayBracket"]);
   }
-  return null;
+  return out;
 }
 
-// 12 · interior " → ', keeping the outermost pair. The parser's own error
-// position localises which string ran long, so the search is a handful of
-// candidates rather than a combinatorial sweep. Knowingly lossy: escaping to \"
-// would be lossless and parse identically — one line, if it is ever wanted.
-function interiorQuotes(text){
-  const err = parseErr(text);
-  if(!err) return null;
+// 16 · prose around the payload — "Here is the JSON: {...}", "{...} Hope this
+// helps!". Takes the span from the first opening bracket to the last closing one.
+function proseCandidates(text){
+  const T = nonComment(tokenize(text));
+  let first = -1, last = -1;
+  for(let i = 0; i < T.length; i++){
+    if(T[i].t === "p" && (T[i].v === "{" || T[i].v === "[")){ first = i; break; }
+  }
+  for(let i = T.length - 1; i >= 0; i--){
+    if(T[i].t === "p" && (T[i].v === "}" || T[i].v === "]")){ last = i; break; }
+  }
+  if(first < 0 || last <= first) return [];
+  if(T[first].s === 0 && T[last].e === text.length) return [];   // nothing around it
+  return [[text.slice(T[first].s, T[last].e), "proseTrim"]];
+}
+
+// Brackets swallowed by an extended string must balance. This is what stops
+// `{"a":1}{"b":2}` becoming one object keyed `a':1}{'b` — a repair that parses
+// and is nonsense. Commas and colons are not counted: prose is full of them.
+function balancedSpan(text, s, e){
+  let depth = 0;
+  for(let i = s; i < e; i++){
+    const c = text[i];
+    if(c === "{" || c === "[") depth++;
+    else if(c === "}" || c === "]"){ depth--; if(depth < 0) return false; }
+  }
+  return depth === 0;
+}
+
+// 1-edge / 12 · a string that ran long: an unescaped `"` inside a double-quoted
+// value, or an apostrophe inside a single-quoted one. Same search either way —
+// re-close the string at a later delimiter and re-emit it through
+// JSON.stringify, which escapes whatever was interior. Lossless: the old rule
+// substituted `'` for interior `"` and changed the content.
+function extendCandidates(text, q){
+  if(text.indexOf(q) < 0) return [];
+  const err = validate(text);
+  const pos = err.pos < 0 ? text.length : err.pos;
   const T = tokenize(text);
-  let tk = null;
-  for(const t of T){
-    if(t.t === "s" && t.q === '"' && (err.pos < 0 || t.s <= err.pos)) tk = t;
+  const heads = [];
+  for(const t of T) if(t.t === "s" && t.q === q && t.s <= pos) heads.push(t);
+  const out = [];
+  for(const tk of heads.slice(-3).reverse()){
+    if(!tk.closed) continue;
+    let n = 0;
+    for(let j = tk.e; j < text.length && n < 12; j++){
+      if(text[j] === "\\"){ j++; continue; }
+      if(text[j] !== q) continue;
+      n++;
+      if(!balancedSpan(text, tk.e, j)) continue;
+      const inner = text.slice(tk.s + 1, j).replace(/\\(.)/g, function(m, ch){
+        if(ch === "n") return "\n";
+        if(ch === "t") return "\t";
+        if(ch === "r") return "\r";
+        if(ch === "\\") return "\\";
+        if(ch === '"' || ch === "'") return ch;
+        return m;
+      });
+      out.push([text.slice(0, tk.s) + quoteStr(inner) + text.slice(j + 1), "extendString"]);
+    }
   }
-  if(!tk || !tk.closed) return null;
-  const cands = [];
-  for(let j = tk.e; j < text.length && cands.length < 20; j++){
-    if(text[j] === "\\"){ j++; continue; }
-    if(text[j] === '"') cands.push(j);
-  }
-  for(const c of cands){
-    const inner = text.slice(tk.s + 1, c).replace(/"/g, "'");
-    const out = text.slice(0, tk.s) + '"' + inner + '"' + text.slice(c + 1);
-    if(parses(out)) return out;
-  }
-  return null;
+  return out;
+}
+
+function ambiguousCandidates(text){
+  return [].concat(proseCandidates(text),
+                   extendCandidates(text, '"'),
+                   extendCandidates(text, "'"),
+                   bracketCandidates(text));
 }
 
 /* --- duplicate keys: detected, never repaired (JSON.parse keeps the last
@@ -1710,52 +1974,66 @@ function changedChars(a, b){
   return Math.max(a.length - p - s, b.length - p - s);
 }
 
-/* --- the verify-loop (W8) --- */
+/* ==========================================================================
+   The verify-loop (W8): deterministic rules to a fixpoint, then a bounded
+   search over the ambiguous ones, re-running the deterministic rules after
+   every candidate so that a fence, a brace pair and a quote conversion compose.
+   ========================================================================== */
 
-function repair(text){
-  if(typeof text !== "string") return {ok:false, out:text, rule:null, changed:0, reason:"not a string"};
-  const trimmed = text.trim();
-  if(trimmed === "") return {ok:false, out:text, rule:null, changed:0, reason:"empty value"};
-  if(parses(trimmed)) return {ok:true, out:trimmed, rule:null, changed:0, reason:null, clean:true};
-
-  let cur = trimmed;
-  for(const name of ORDER){
-    const next = rules[name](cur);
-    if(next === null) continue;
-    cur = next;
-    // Acceptance *is* a successful parse: the fixer can never emit a value that
-    // looks repaired but isn't.
-    if(parses(cur)) return {ok:true, out:cur, rule:name, changed:changedChars(trimmed, cur), reason:null};
-  }
-  // The two ambiguous rules are searches, not rewrites, so they are tried
-  // against the original text as well as the rewritten one: a deterministic rule
-  // that fired but did not fix anything can otherwise hide the reading that
-  // would have worked. Every candidate here has already parsed; the tie-break is
-  // fewest characters changed.
-  const cands = [];
-  for(const base of (cur === trimmed ? [trimmed] : [trimmed, cur])){
-    const sb = strayBrackets(base);
-    for(const c of [[sb, "strayBrackets"],
-                    [interiorQuotes(base), "interiorQuotes"],
-                    [sb ? interiorQuotes(sb) : null, "strayBrackets+interiorQuotes"]]){
-      if(c[0] !== null && c[0] !== undefined && parses(c[0])) cands.push({out:c[0], rule:c[1]});
+function search(text, depth, found, budget, trail){
+  if(budget.n <= 0) return;
+  budget.n--;
+  const cur = detFixpoint(text);
+  if(parses(cur)){ found.push({out:cur, rule:trail || "deterministic"}); return; }
+  if(depth <= 0) return;
+  // Candidates come off the *untouched* text as well as the rewritten one. A
+  // deterministic rule that fired without fixing anything otherwise hides the
+  // reading that would have worked: `{'a': 'it's fine'}` has its quotes
+  // converted by rule 1 into a shape where the apostrophe is no longer
+  // recoverable, and the original is the only text the search can still read.
+  const bases = cur === text ? [cur] : [text, cur];
+  for(const base of bases){
+    for(const c of ambiguousCandidates(base)){
+      if(budget.n <= 0 || found.length >= 4) return;
+      search(c[0], depth - 1, found, budget, trail ? trail + "+" + c[1] : c[1]);
     }
   }
-  if(cands.length){
-    cands.sort(function(a, b){ return changedChars(trimmed, a.out) - changedChars(trimmed, b.out); });
-    return {ok:true, out:cands[0].out, rule:cands[0].rule,
-            changed:changedChars(trimmed, cands[0].out), reason:null};
+}
+
+function repair(text){
+  if(typeof text !== "string")
+    return {ok:false, out:text, rule:null, changed:0, reason:"not a string", cause:"not a string"};
+  const trimmed = text.trim();
+  if(trimmed === "")
+    return {ok:false, out:text, rule:null, changed:0, reason:"empty value", cause:"empty value"};
+  if(parses(trimmed))
+    return {ok:true, out:trimmed, rule:null, changed:0, reason:null, cause:null, clean:true};
+
+  // Structurally hopeless or deliberately out of scope: say so instead of
+  // searching for a reading that would have to invent data to exist.
+  const v = validate(trimmed);
+  if(v.cause === "truncated" || v.cause === "concatenated-roots" || v.cause === "not json")
+    return {ok:false, out:text, rule:null, changed:0, reason:CAUSE_TEXT[v.cause], cause:v.cause};
+
+  const found = [];
+  search(trimmed, DEPTH, found, {n:budgetFor(trimmed)}, null);
+  if(found.length){
+    // Every candidate here has already parsed; the tie-break is fewest characters
+    // changed, which is what keeps a big rewrite from beating a small correct one.
+    found.sort(function(a, b){ return changedChars(trimmed, a.out) - changedChars(trimmed, b.out); });
+    return {ok:true, out:found[0].out, rule:found[0].rule,
+            changed:changedChars(trimmed, found[0].out), reason:null, cause:null};
   }
-  const err = parseErr(cur) || parseErr(trimmed);
-  // Exhausted: hand back the input byte-identical, with the parser's reason.
-  return {ok:false, out:text, rule:null, changed:0, reason:err ? err.msg : "unparseable"};
+  // Exhausted: hand back the input byte-identical, with the cause.
+  const cause = v.cause || "unexpected";
+  return {ok:false, out:text, rule:null, changed:0, reason:CAUSE_TEXT[cause] || cause, cause:cause};
 }
 
 // Runs repair across one path's values. Populates the "941/1000 parse · 59 fail"
-// readout, the residue list, and the duplicate-key warnings.
+// readout, the residue list, the per-cause tally and the duplicate-key warnings.
 function scanPath(records, path){
   const steps = readers.parsePath(path);
-  const out = {total:0, parsed:0, repaired:0, residue:[], dups:[], values:[]};
+  const out = {total:0, parsed:0, repaired:0, residue:[], dups:[], values:[], causes:{}};
   for(let i = 0; i < records.length; i++){
     const refs = valueRefs(records[i], steps);
     for(let o = 0; o < refs.length; o++){
@@ -1769,8 +2047,10 @@ function scanPath(records, path){
         if(out.dups.length < 200){
           for(const d of duplicateKeys(r.out)) out.dups.push({i:i, o:o, key:d});
         }
-      } else if(out.residue.length < 5000){
-        out.residue.push({i:i, o:o, path:path, reason:r.reason, raw:raw});
+      } else {
+        out.causes[r.cause] = (out.causes[r.cause] || 0) + 1;
+        if(out.residue.length < 5000)
+          out.residue.push({i:i, o:o, path:path, reason:r.reason, cause:r.cause, raw:raw});
       }
     }
   }
@@ -1778,7 +2058,9 @@ function scanPath(records, path){
 }
 
 return {tokenize:tokenize, repair:repair, scanPath:scanPath, duplicateKeys:duplicateKeys,
-        rules:rules, strayBrackets:strayBrackets, interiorQuotes:interiorQuotes};
+        rules:rules, validate:validate, detFixpoint:detFixpoint,
+        bracketCandidates:bracketCandidates, extendCandidates:extendCandidates,
+        proseCandidates:proseCandidates, CAUSE_TEXT:CAUSE_TEXT};
 })();
 
 /* ==========================================================================
@@ -2380,13 +2662,13 @@ function unpack(path){
   S.model.depth = sub.depthOf(S.model.root);
   return {t:"unpacked", path:path, model:S.model, warnings:S.warnings,
           total:res.total, parsed:res.parsed, repaired:res.repaired,
-          residue:res.residue.slice(0, 5000)};
+          residue:res.residue.slice(0, 5000), causes:res.causes};
 }
 
 function residueBlob(path){
   const res = fix.scanPath(S.records, path);
   const lines = res.residue.map(function(r){
-    return JSON.stringify({i:r.i, o:r.o, path:r.path, reason:r.reason, raw:r.raw});
+    return JSON.stringify({i:r.i, o:r.o, path:r.path, cause:r.cause, reason:r.reason, raw:r.raw});
   });
   return {t:"blob", blob:new Blob([lines.join("\n") + (lines.length ? "\n" : "")], {type:"application/x-ndjson"}),
           count:res.residue.length};
@@ -2561,12 +2843,54 @@ paintTheme();
 $("themeBtn").addEventListener("click", function(){ theme = theme === "dark" ? "light" : "dark"; paintTheme(); });
 /* ---------- help and changelog (W23) ---------- */
 
-const VERSION = "1.1.0";
+const VERSION = "1.2.0";
 
 // W1 forbids runtime network requests and `file://` blocks fetch regardless, so the
 // changelog ships inside the page. It is the *text of* changelog.md, verbatim — the
 // two are kept in step by paste, which is what stops the in-app copy drifting.
 const CHANGELOG_MD = `
+## v1.2.0
+
+The fixer, reworked. Every item below is a value that used to land in residue, or
+a repair that used to be accepted when it should not have been.
+
+- **Wrapper braces are repaired** — \`{ [ … ] }\`, a model wrapping an array in an
+  object, is the commonest damaged shape in judge output and was residue in every
+  previous version: the stray-bracket search removed one bracket at a time, and the
+  pair needs two. Peeling the outer pair is now the first candidate tried, matched on
+  characters rather than tokens so an unterminated quote later in the value cannot
+  hide the pair that is plainly there (W8).
+- **The interior-quote rule works outside Chrome** — it located the failure by reading
+  \`position N\` out of V8's error message, which JavaScriptCore does not emit, so the
+  rule was silently dead in Safari and every WebKit view and nowhere else. The fixer
+  now finds the failure itself by walking its own token stream. The suite runs against
+  both engines' error shapes and reports no drift (W8).
+- **Interior quotes are escaped, not substituted** — rule 12 rewrote an interior \`"\`
+  to \`'\`, changing the content of any value that quoted something. It now escapes to
+  \`\\"\`, which parses identically and preserves the text, so a judge reason about
+  \`"soles"\` keeps its quotes (W7).
+- **A repair that parses is no longer automatically accepted** — \`{"a":1}{"b":2}\` was
+  being "repaired" into a single object keyed \`a':1}{'b\`. Concatenated roots, truncated
+  values and non-JSON prose are classified and refused before the search starts, and a
+  string-extending candidate may not swallow unbalanced brackets (W8).
+- **Four new rules** — markdown code fences, prose wrapped around the payload, raw
+  control characters inside strings, and invalid escapes such as \`\\d\` or a Windows
+  path. Apostrophes inside single-quoted strings, the spec's own listed edge case for
+  rule 1 and never implemented, now resolve through the same search as interior
+  quotes (W7).
+- **Rules run to a fixpoint and the ambiguous ones are a bounded search over it**,
+  taking candidates from the original text as well as the rewritten one. A value
+  needing a fence stripped, a brace pair peeled and quotes converted comes out in one
+  go instead of not at all (W8).
+- **Residue says why** — each refused value carries a cause (cut off mid-structure,
+  two roots concatenated, not JSON, no reading that parses) rather than a raw engine
+  message. The dialog leads with the tally, per-value labels name the class, and the
+  downloadable \`.jsonl\` carries \`cause\` beside \`reason\`, so thousands of entries can
+  be triaged instead of read (W10).
+- Faster on what already worked: every rule opens with a substring guard before
+  tokenising, so a 246 KB single-quoted value repairs in ~5 ms against ~12 ms in
+  v1.1.0.
+
 ## v1.1.0
 
 - **Containers can stay whole** — a nested object no longer has to be exported as a
@@ -3540,7 +3864,8 @@ function doUnpack(path){
     state.unpacked.add(path);
     state.model = m.model;
     state.warnings = m.warnings || state.warnings;
-    state.unpackInfo.set(path, {total:m.total, parsed:m.parsed, repaired:m.repaired, residue:m.residue});
+    state.unpackInfo.set(path, {total:m.total, parsed:m.parsed, repaired:m.repaired,
+                                residue:m.residue, causes:m.causes || {}});
     state.expanded.add(path);
     status("expStatus", "ok", num(m.parsed) + " parsed cleanly · " + num(m.repaired) + " repaired · " +
       num(m.residue.length) + " residue");
@@ -4137,14 +4462,34 @@ $("emitDl").addEventListener("click", function(){
 
 /* ---------- residue (W10) ---------- */
 
+// Why a value was refused, in the words a triage decision actually needs. A flat
+// list of thousands of parser messages is unreadable; the split between "cut off"
+// and "no reading that parses" is what tells you whether to go back to the
+// producing pipeline or to edit by hand.
+const CAUSE_LABEL = {
+  "truncated":          "cut off mid-structure",
+  "concatenated-roots": "two roots concatenated",
+  "not json":           "not JSON at all",
+  "unexpected":         "no reading that parses",
+  "empty value":        "empty",
+  "not a string":       "not a string"
+};
+
+function causeSummary(causes){
+  const rows = Object.keys(causes || {}).map(function(k){ return [k, causes[k]]; });
+  if(!rows.length) return "";
+  rows.sort(function(a, b){ return b[1] - a[1]; });
+  return rows.map(function(r){ return num(r[1]) + " " + (CAUSE_LABEL[r[0]] || r[0]); }).join(" · ");
+}
+
 function openResidue(path){
   const info = state.unpackInfo.get(path);
   if(!info) return;
   state.residue = {path:path, items:info.residue};
   const dlg = $("residueDlg");
+  const summary = causeSummary(info.causes);
   $("residueLede").textContent = num(info.residue.length) + " value" + (info.residue.length === 1 ? "" : "s") +
-    " at " + path + " could not be repaired: unbalanced brackets, mismatched bracket types, malformed \\u escapes, " +
-    "or no candidate reading that parses." +
+    " at " + path + " could not be repaired" + (summary ? " — " + summary + "." : ".") +
     (info.residue.length < RESIDUE_INLINE ? " Edit them below, or download and repair externally."
                                           : " Download them, repair externally, and drop the result back in.");
   const body = $("residueBody");
@@ -4154,7 +4499,7 @@ function openResidue(path){
       const item = el("div", "res-item");
       const head = el("div", "head");
       head.appendChild(el("span", null, "record " + r.i + " · #" + r.o));
-      head.appendChild(el("span", "why", r.reason));
+      head.appendChild(el("span", "why", (CAUSE_LABEL[r.cause] || r.cause || "") + " — " + r.reason));
       item.appendChild(head);
       const ta = el("textarea");
       ta.value = r.raw;
@@ -4174,7 +4519,7 @@ function openResidue(path){
     $("residueApply").classList.remove("hidden");
   } else {
     const pre = el("div", "val", info.residue.slice(0, 20).map(function(r){
-      return JSON.stringify({i:r.i, o:r.o, path:r.path, reason:r.reason,
+      return JSON.stringify({i:r.i, o:r.o, path:r.path, cause:r.cause, reason:r.reason,
                              raw:r.raw.length > 120 ? r.raw.slice(0, 120) + "…" : r.raw});
     }).join("\n"));
     body.appendChild(pre);
@@ -4206,7 +4551,8 @@ function applyFixed(path, fixed){
     if(m.t === "fail"){ status("expStatus", "err", esc(m.msg)); show("expStatus"); return; }
     state.model = m.model;
     state.warnings = m.warnings || state.warnings;
-    state.unpackInfo.set(path, {total:m.total, parsed:m.parsed, repaired:m.repaired, residue:m.residue});
+    state.unpackInfo.set(path, {total:m.total, parsed:m.parsed, repaired:m.repaired,
+                                residue:m.residue, causes:m.causes || {}});
     status("expStatus", "ok", num(m.matched) + " merged" + (m.missed ? " · " + num(m.missed) + " rejected (did not parse)" : "") +
       " · " + num(m.residue.length) + " residue left");
     show("expStatus");

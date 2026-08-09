@@ -14,6 +14,48 @@
 > dialog. When you edit here, paste the result there too — the inlined copy is the
 > one users read.
 
+## v1.2.0
+
+The fixer, reworked. Every item below is a value that used to land in residue, or
+a repair that used to be accepted when it should not have been.
+
+- **Wrapper braces are repaired** — `{ [ … ] }`, a model wrapping an array in an
+  object, is the commonest damaged shape in judge output and was residue in every
+  previous version: the stray-bracket search removed one bracket at a time, and the
+  pair needs two. Peeling the outer pair is now the first candidate tried, matched on
+  characters rather than tokens so an unterminated quote later in the value cannot
+  hide the pair that is plainly there (W8).
+- **The interior-quote rule works outside Chrome** — it located the failure by reading
+  `position N` out of V8's error message, which JavaScriptCore does not emit, so the
+  rule was silently dead in Safari and every WebKit view and nowhere else. The fixer
+  now finds the failure itself by walking its own token stream. The suite runs against
+  both engines' error shapes and reports no drift (W8).
+- **Interior quotes are escaped, not substituted** — rule 12 rewrote an interior `"`
+  to `'`, changing the content of any value that quoted something. It now escapes to
+  `\"`, which parses identically and preserves the text, so a judge reason about
+  `"soles"` keeps its quotes (W7).
+- **A repair that parses is no longer automatically accepted** — `{"a":1}{"b":2}` was
+  being "repaired" into a single object keyed `a':1}{'b`. Concatenated roots, truncated
+  values and non-JSON prose are classified and refused before the search starts, and a
+  string-extending candidate may not swallow unbalanced brackets (W8).
+- **Four new rules** — markdown code fences, prose wrapped around the payload, raw
+  control characters inside strings, and invalid escapes such as `\d` or a Windows
+  path. Apostrophes inside single-quoted strings, the spec's own listed edge case for
+  rule 1 and never implemented, now resolve through the same search as interior
+  quotes (W7).
+- **Rules run to a fixpoint and the ambiguous ones are a bounded search over it**,
+  taking candidates from the original text as well as the rewritten one. A value
+  needing a fence stripped, a brace pair peeled and quotes converted comes out in one
+  go instead of not at all (W8).
+- **Residue says why** — each refused value carries a cause (cut off mid-structure,
+  two roots concatenated, not JSON, no reading that parses) rather than a raw engine
+  message. The dialog leads with the tally, per-value labels name the class, and the
+  downloadable `.jsonl` carries `cause` beside `reason`, so thousands of entries can
+  be triaged instead of read (W10).
+- Faster on what already worked: every rule opens with a substring guard before
+  tokenising, so a 246 KB single-quoted value repairs in ~5 ms against ~12 ms in
+  v1.1.0.
+
 ## v1.1.0
 
 - **Containers can stay whole** — a nested object no longer has to be exported as a

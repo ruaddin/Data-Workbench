@@ -14,6 +14,22 @@
 > dialog. When you edit here, paste the result there too — the inlined copy is the
 > one users read.
 
+## v1.2.2
+
+Two export fixes.
+
+- **A key is data, so it can hold `.`, `[`, `]` or `\`.** Paths were built by plain
+  concatenation and re-split on every `.`, so a key carrying one of those four
+  characters either aborted the whole export — *bad path segment: …* — or resolved to
+  nothing and wrote a blank column without saying so. `childPath` now backslash-escapes
+  those four and `parsePath` undoes it, which is what makes the round trip lossless.
+  Hand-typed paths carry no backslashes and parse exactly as they did before. Where a
+  key really does contain one, the escapes show in the column name, because the column
+  name is the path.
+- ***Row unit* and *Sort rows by* no longer overflow the Export panel.** Both are filled
+  with path names and a `<select>` sizes itself to its widest option, so one long path
+  pushed the control past the panel edge.
+
 ## v1.2.1
 
 Per-path handling moves out of the tree.

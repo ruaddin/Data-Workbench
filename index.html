@@ -360,6 +360,11 @@ main{flex:1; min-width:0; padding:40px 48px 80px; display:flex; flex-direction:c
 
 /* ---------- export ---------- */
 .export-grid{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end}
+/* Row unit and Sort rows by are filled with path names, which are data: a select
+   sizes to its widest option, so without these it grows past the panel edge. */
+.export-grid .field{min-width:0}
+.export-grid .select{max-width:100%}
+#explodeSel,#sortBy{width:100%}
 .rowcount{font-family:var(--font-mono);font-size:12px;color:var(--text-2)}
 .copy-btn{border:none;background:transparent;font:inherit;font-size:12px;font-weight:600;color:var(--blue);cursor:pointer}
 .copy-btn.is-copied{color:var(--green)}
@@ -612,7 +617,7 @@ dialog h2 .ver{font-family:var(--font-mono);font-size:11.5px;font-weight:400;col
             <option value="drop">remove</option>
           </select>
         </label>
-        <label class="field"><span class="field-label">Sort rows by</span>
+        <label class="field" style="flex:1 1 200px"><span class="field-label">Sort rows by</span>
           <select class="select" id="sortBy"><option value="">none</option></select>
         </label>
         <label class="field"><span class="field-label">Direction</span>
@@ -1136,14 +1141,30 @@ const readers = {
   },
 
   // "data.results[]" -> ["data","results","[]"];  "users.{*}.email" -> ["users","{*}","email"]
+  // A key is data, so it may itself hold "." "[" "]" or "\". childPath backslash-
+  // escapes those four when it builds a path and this undoes it, which is what makes
+  // the round trip lossless. Hand-typed paths carry no backslashes, so unescaping
+  // leaves them exactly as typed. Every "]" an escape produced is preceded by its
+  // backslash, so an unescaped "[]" pair can only ever be a real array step.
   parsePath(p){
+    const s = String(p);
+    const parts = [];
+    let cur = "";
+    for(let i = 0; i < s.length; i++){
+      const c = s[i];
+      if(c === "\\" && i + 1 < s.length){ cur += c + s[++i]; continue; }
+      if(c === "."){ parts.push(cur); cur = ""; continue; }
+      cur += c;
+    }
+    parts.push(cur);
     const steps = [];
-    for(const part of String(p).split(".")){
+    for(const part of parts){
       if(part === "") continue;
-      const m = /^([^\[\]]*)((?:\[\])*)$/.exec(part);
-      if(!m) throw new Error("bad path segment: " + part);
-      if(m[1]) steps.push(m[1]);
-      for(let i = 0; i < m[2].length / 2; i++) steps.push("[]");
+      let end = part.length, arrays = 0;
+      while(end >= 2 && part[end - 1] === "]" && part[end - 2] === "["){ end -= 2; arrays++; }
+      const key = part.slice(0, end).replace(/\\(.)/g, "$1");
+      if(key) steps.push(key);
+      for(let i = 0; i < arrays; i++) steps.push("[]");
     }
     return steps;
   },
@@ -1363,7 +1384,8 @@ function skeleton(opts){
 
 function childPath(path, key){
   if(key === "[]") return path + "[]";
-  return path ? path + "." + key : key;
+  const seg = String(key).replace(/[\\.[\]]/g, "\\$&");
+  return path ? path + "." + seg : seg;
 }
 
 // Strict descendant test on *steps*, not strings — "a.bc" must not read as a child
@@ -2853,12 +2875,28 @@ paintTheme();
 $("themeBtn").addEventListener("click", function(){ theme = theme === "dark" ? "light" : "dark"; paintTheme(); });
 /* ---------- help and changelog (W23) ---------- */
 
-const VERSION = "1.2.1";
+const VERSION = "1.2.2";
 
 // W1 forbids runtime network requests and `file://` blocks fetch regardless, so the
 // changelog ships inside the page. It is the *text of* changelog.md, verbatim — the
 // two are kept in step by paste, which is what stops the in-app copy drifting.
 const CHANGELOG_MD = `
+## v1.2.2
+
+Two export fixes.
+
+- **A key is data, so it can hold \`.\`, \`[\`, \`]\` or \`\\\`.** Paths were built by plain
+  concatenation and re-split on every \`.\`, so a key carrying one of those four
+  characters either aborted the whole export — *bad path segment: …* — or resolved to
+  nothing and wrote a blank column without saying so. \`childPath\` now backslash-escapes
+  those four and \`parsePath\` undoes it, which is what makes the round trip lossless.
+  Hand-typed paths carry no backslashes and parse exactly as they did before. Where a
+  key really does contain one, the escapes show in the column name, because the column
+  name is the path.
+- ***Row unit* and *Sort rows by* no longer overflow the Export panel.** Both are filled
+  with path names and a \`<select>\` sizes itself to its widest option, so one long path
+  pushed the control past the panel edge.
+
 ## v1.2.1
 
 Per-path handling moves out of the tree.

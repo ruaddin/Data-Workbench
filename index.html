@@ -252,6 +252,9 @@ main{flex:1; min-width:0; padding:40px 48px 80px; display:flex; flex-direction:c
 }
 .badge.inf{background:var(--blue-tint);color:var(--blue);border-color:transparent}
 .badge.warn{background:var(--red-tint);color:var(--red);border-color:transparent}
+/* W24 — a handling state that was set in the detail pane, read back in the row.
+   Green separates "you did this" from blue "the scan inferred this". */
+.badge.set{background:var(--green-tint);color:var(--green);border-color:transparent;font-weight:600}
 /* W22 — everything right of the name is fixed-width, so the columns land on the
    same x at every depth. `.kids` indents by margin/padding on the left only, so
    all rows share a right edge; no grid and no subgrid is needed to align them. */
@@ -296,11 +299,14 @@ main{flex:1; min-width:0; padding:40px 48px 80px; display:flex; flex-direction:c
   color:var(--text-2);font-variant-numeric:tabular-nums;
 }
 .kids{border-left:1px solid var(--border);margin-left:11px;padding-left:4px}
-.unpack{
-  display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text-3);
-  padding:2px 4px 6px 27px;
-}
-.unpack .btn-sm{font-size:11px;padding:3px 8px}
+/* W24 — a handling control and the sentence that explains it, in the detail pane. */
+.handling{display:flex;align-items:flex-start;gap:12px;padding:8px 0}
+.handling + .handling{border-top:1px solid var(--border)}
+.handling-txt{flex:1;min-width:0}
+.handling-title{font-size:13px;color:var(--text-1)}
+.handling-txt .field-hint{overflow-wrap:anywhere}
+.handling > input[type=checkbox]{accent-color:var(--blue);width:15px;height:15px;flex:none;margin-top:2px}
+.handling-btns{display:flex;gap:6px;flex:none}
 
 /* ---------- tables ---------- */
 .table-wrap{overflow:auto}
@@ -632,6 +638,7 @@ dialog h2 .ver{font-family:var(--font-mono);font-size:11.5px;font-weight:400;col
         <label class="field"><span class="field-label">Custom token</span>
           <input class="input" id="splitToken" type="text" style="width:120px" placeholder="(none)" spellcheck="false" disabled>
         </label>
+        <span class="field-hint" id="prettyNote" title="Set per path, under Handling in the Path detail pane">Pretty-print embedded JSON: off</span>
       </div>
 
       <div class="option-row" style="margin-top:16px">
@@ -667,8 +674,12 @@ dialog h2 .ver{font-family:var(--font-mono);font-size:11.5px;font-weight:400;col
         <li><strong>ID-keyed objects collapse</strong> past the map-keys threshold into <code>{*}</code>.
             A map's keys are data, so <code>{*}</code> is tickable, projects as an object keyed by the map key,
             and can be exploded.</li>
-        <li><strong>Embedded JSON can be repaired and unpacked.</strong> A path holding stringified JSON gets a
-            <em>parse as JSON</em> toggle: values are repaired by a deterministic verify-loop — a fix is only
+        <li><strong>Per-path handling lives in Path detail.</strong> Click any row: the right pane opens on that
+            path with a <em>Handling</em> block carrying <em>Keep whole — one column</em>,
+            <em>Unpack into child paths</em> and <em>Pretty-print on export</em>, each with what it does written
+            beside it. Whatever you set reads back in the row as a green chip.</li>
+        <li><strong>Embedded JSON can be repaired and unpacked.</strong> A path holding stringified JSON can be
+            unpacked from that block: values are repaired by a deterministic verify-loop — a fix is only
             accepted when the result actually parses, and content is never altered to get there — and the
             discovered structure is grafted into the tree. Anything unfixable is listed as residue, each value
             labelled with why: <em>cut off mid-structure</em>, <em>two roots concatenated</em>,
@@ -676,10 +687,9 @@ dialog h2 .ver{font-family:var(--font-mono);font-size:11.5px;font-weight:400;col
         <li><strong>Redact</strong> strips previews, enums and value labels from the tree, Stats and Path detail,
             and from the structural exports. It deliberately does <em>not</em> blank the preview table or the
             exported data — it is a report-hygiene switch, not a screen-share switch.</li>
-        <li><strong>A container can stay whole.</strong> Any object or array row carries an
-            <em>as one column</em> toggle: the path itself becomes the column and its value is written
-            as JSON. Unticking a sub-node repackages the object without that key rather than splitting
-            it into separate columns.</li>
+        <li><strong>A container can stay whole.</strong> <em>Keep whole — one column</em> makes the path itself
+            the column, its value written as JSON. Unticking a sub-node repackages the object without that key
+            rather than splitting it into separate columns.</li>
       </ul>
   </div>
   <div class="dlg-foot">
@@ -2843,12 +2853,37 @@ paintTheme();
 $("themeBtn").addEventListener("click", function(){ theme = theme === "dark" ? "light" : "dark"; paintTheme(); });
 /* ---------- help and changelog (W23) ---------- */
 
-const VERSION = "1.2.0";
+const VERSION = "1.2.1";
 
 // W1 forbids runtime network requests and `file://` blocks fetch regardless, so the
 // changelog ships inside the page. It is the *text of* changelog.md, verbatim — the
 // two are kept in step by paste, which is what stops the in-app copy drifting.
 const CHANGELOG_MD = `
+## v1.2.1
+
+Per-path handling moves out of the tree.
+
+- **\`as one column\`, \`parse as JSON\` and \`pretty-print\` are no longer bare checkboxes
+  hanging under a tree row.** Sitting one indent below the *selection* checkbox, they
+  read as more selection, which none of them is — one is a one-shot action that
+  rewrites the skeleton, one redefines what selection means beneath it, and one is a
+  deferred export flag. They also injected a ragged half-row between the aligned rows
+  W22 exists to align. All three now live in a **Handling** block at the top of the
+  **Path detail** pane, which the row click already opens (W24).
+- **They say what they do.** A pane has width for a label and a sentence, which a tree
+  row does not: *Keep whole — one column*, *Unpack into child paths*,
+  *Pretty-print on export*, each with its effect written beside it and its state — keys
+  kept, values parsed, repaired and residue — spelled out rather than abbreviated.
+- **Unpack is a button, not a checkbox**, because it is an action that rewrites the
+  tree, not a setting. Undo is *Collapse back to string*, in the same place.
+- **The row reads the state back.** A path with handling set carries a green chip in
+  its type cell — \`one column\`, \`unpacked\`, \`pretty\` — so nothing set in the pane is
+  invisible where you scan. Green separates *you did this* from the blue chips the
+  scan inferred. The Flat view shows the same chips.
+- **The Export panel names pretty-print without owning it** — a readout of how many
+  paths have it, pointing at Path detail. It is per path, and its exclusivity with
+  unpack is only legible next to unpack.
+
 ## v1.2.0
 
 The fixer, reworked. Every item below is a value that used to land in residue, or
@@ -3545,7 +3580,7 @@ function tickNode(node, path, on){
   selectPaths(leavesOf(node, path), on);
 }
 
-// Flipping "as one column" on: the container becomes the column, and whatever was
+// Flipping "keep whole" on: the container becomes the column, and whatever was
 // already ticked beneath it becomes the keep-list — all of it, if none was.
 function setWhole(node, path, on){
   if(on){
@@ -3648,6 +3683,7 @@ function exampleText(node){
 
 function render(){
   updateSelCount();
+  renderPrettyNote();
   if(state.tab === "tree") renderTree();
   else if(state.tab === "flat") renderFlat();
   else renderStats();
@@ -3690,7 +3726,7 @@ function buildNode(node, parent, path, depth){
   const name = el("span", "tname" + (node.key === "{*}" ? " map" : node.key === "[]" ? " arr" : ""), node.key);
   row.appendChild(name);
 
-  row.appendChild(typeCell(node));
+  row.appendChild(typeCell(node, path));
 
   const size = el("span", "tsize", sizeText(node));
   size.title = size.textContent;
@@ -3723,9 +3759,6 @@ function buildNode(node, parent, path, depth){
 
   wrap.appendChild(row);
 
-  if(isEmbedded(node)) wrap.appendChild(unpackRow(node, path));
-  if(canPackage(node)) wrap.appendChild(packageRow(node, path));
-
   const kids = el("div", "kids");
   wrap.appendChild(kids);
 
@@ -3756,10 +3789,22 @@ function buildNode(node, parent, path, depth){
 
 // W22. A fixed-width cell holding a variable run of badges, so it overflows by
 // design. Inferred chips outrank a third literal type: "→ embedded JSON" is what
-// gates the parse-as-JSON toggle, where "float ×3" is only trivia.
+// marks a path as handleable, where "float ×3" is only trivia.
 const TYPE_BADGES = 2;
 
-function typeCell(node){
+// W24. Handling lives in the detail pane, so the row has to *say* what is set on a
+// path or the state is invisible where you scan. These are readouts, not controls:
+// they rank above everything, and the row click that reveals them also opens the
+// pane that changes them.
+function stateChips(path){
+  const out = [];
+  if(state.whole.has(path)) out.push("one column");
+  if(state.unpacked.has(path)) out.push("unpacked");
+  if(state.pretty.has(path)) out.push("pretty");
+  return out;
+}
+
+function typeCell(node, path){
   const cell = el("span", "ttype");
   const items = [];
   for(const t of typeBadges(node)) items.push({cls:"badge", text:t});
@@ -3767,8 +3812,16 @@ function typeCell(node){
     items.push({cls:"badge " + (e[0] === "json?" ? "warn" : "inf"), pri:true,
       text: e[0] === "json?" ? "→ embedded JSON ×" + num(e[1]) : "→ " + e[0] + " ×" + num(e[1])});
   }
+
+  // State chips are laid out *first*, ahead of the source-ordered rest. The cell is
+  // a fixed 130px that clips, so ranking them only for the keep/`+N` cut would still
+  // let `→ embedded JSON ×32` push `unpacked` past the right edge — invisible in the
+  // one case it exists for (W24).
+  const chips = stateChips(path);
+  for(const s of chips) cell.appendChild(el("span", "badge set", s));
+
   const shown = items.filter(function(i){ return i.pri; }).concat(items.filter(function(i){ return !i.pri; }));
-  const keep = shown.slice(0, TYPE_BADGES), rest = shown.slice(TYPE_BADGES);
+  const keep = shown.slice(0, Math.max(1, TYPE_BADGES - chips.length)), rest = shown.slice(keep.length);
   // Restore source order among the kept ones so types still read before inferences.
   for(const i of items) if(keep.indexOf(i) >= 0) cell.appendChild(el("span", i.cls, i.text));
   if(rest.length){
@@ -3776,84 +3829,123 @@ function typeCell(node){
     more.title = rest.map(function(i){ return i.text; }).join("\n");
     cell.appendChild(more);
   }
-  cell.title = items.map(function(i){ return i.text; }).join("  ·  ");
+  cell.title = chips.concat(items.map(function(i){ return i.text; })).join("  ·  ");
   return cell;
 }
 
-function packageRow(node, path){
-  const bar = el("div", "unpack");
-  const host = packagedBy(path);
-  const lab = el("label", "chk");
-  const cb = el("input");
-  cb.type = "checkbox";
-  cb.checked = state.whole.has(path);
-  cb.disabled = host !== null || state.provisional;
-  lab.appendChild(cb);
-  lab.appendChild(el("span", null, "as one column"));
-  bar.appendChild(lab);
+/* ---------- handling (W24: per-path controls, in the detail pane) ---------- */
 
-  if(host !== null){
-    bar.appendChild(el("span", null, "already inside " + host));
-  } else if(state.whole.has(path)){
-    let kept = 0;
-    for(const l of leavesOf(node, path)) if(state.selected.has(l)) kept++;
-    bar.appendChild(el("span", null, kept ? num(kept) + " of " +
-      num(leavesOf(node, path).length) + " paths kept" : "everything deselected — emits {}"));
-  }
-
-  cb.addEventListener("click", function(e){ e.stopPropagation(); });
-  cb.addEventListener("change", function(){ setWhole(node, path, cb.checked); });
-  bar.addEventListener("click", function(e){ e.stopPropagation(); });
-  return bar;
+// W24. These three used to hang off the tree row as bare checkboxes, one indent
+// below the *selection* checkbox, which read them as more selection — they are not.
+// They live in the detail pane now, where there is width for a label that says what
+// each one does. `handlingSection` returns null for a path that has none.
+function handlingRow(title, hint, control){
+  const r = el("div", "handling");
+  const txt = el("div", "handling-txt");
+  txt.appendChild(el("div", "handling-title", title));
+  if(hint) txt.appendChild(el("div", "field-hint", hint));
+  r.appendChild(txt);
+  r.appendChild(control);
+  return r;
 }
 
-function unpackRow(node, path){
-  const bar = el("div", "unpack");
-  const lab = el("label", "chk");
-  const cb = el("input");
-  cb.type = "checkbox";
-  cb.checked = state.unpacked.has(path);
-  cb.disabled = state.pretty.has(path) || state.provisional;
-  lab.appendChild(cb);
-  lab.appendChild(el("span", null, "parse as JSON"));
-  bar.appendChild(lab);
+function handlingSection(node, path){
+  const embedded = isEmbedded(node), packable = canPackage(node);
+  if(!embedded && !packable) return null;
 
-  const info = state.unpackInfo.get(path);
-  const parsedCount = (node.inferred.get("json") || 0);
-  const failCount = (node.inferred.get("json?") || 0);
-  const note = el("span", null, info
-    ? num(info.parsed) + " clean · " + num(info.repaired) + " repaired · " + num(info.residue.length) + " residue"
-    : num(parsedCount) + "/" + num(parsedCount + failCount) + " parse · " + num(failCount) + " fail");
-  bar.appendChild(note);
+  const s = el("div", "section");
+  s.appendChild(el("h3", null, "Handling"));
 
-  if(info && info.residue.length){
-    const b = el("button", "btn-sm", info.residue.length < RESIDUE_INLINE ? "Fix " + info.residue.length + " inline" : "Residue…");
-    b.addEventListener("click", function(e){ e.stopPropagation(); openResidue(path); });
-    bar.appendChild(b);
+  if(packable){
+    const host = packagedBy(path);
+    const cb = el("input");
+    cb.type = "checkbox";
+    cb.checked = state.whole.has(path);
+    cb.disabled = host !== null || state.provisional;
+    cb.setAttribute("aria-label", "Keep " + path + " whole as one column");
+    cb.addEventListener("change", function(){ setWhole(node, path, cb.checked); renderDetail(); });
+
+    let hint;
+    if(host !== null){
+      // The outer container's JSON already nests this one, so its toggle would do
+      // nothing; it renders disabled and says why rather than staying live (W21).
+      hint = "Already inside " + host + ", which is packaged whole.";
+    } else if(state.whole.has(path)){
+      const leaves = leavesOf(node, path);
+      let kept = 0;
+      for(const l of leaves) if(state.selected.has(l)) kept++;
+      hint = kept ? num(kept) + " of " + num(leaves.length) +
+                    " keys kept — untick a child below to drop it from the packaged object"
+                  : "Everything deselected — the column emits {}";
+    } else {
+      hint = "One JSON column at this path instead of a column per leaf beneath it.";
+    }
+    s.appendChild(handlingRow("Keep whole — one column", hint, cb));
   }
 
-  const pl = el("label", "chk");
-  const pc = el("input");
-  pc.type = "checkbox";
-  pc.checked = state.pretty.has(path);
-  pc.disabled = state.unpacked.has(path);
-  pl.appendChild(pc);
-  pl.appendChild(el("span", null, "pretty-print"));
-  bar.appendChild(pl);
+  if(embedded){
+    const info = state.unpackInfo.get(path);
+    const parsedCount = (node.inferred.get("json") || 0);
+    const failCount = (node.inferred.get("json?") || 0);
 
-  cb.addEventListener("click", function(e){ e.stopPropagation(); });
-  cb.addEventListener("change", function(){
-    if(cb.checked) doUnpack(path);
-    else { state.unpacked.delete(path); render(); renderPreview(); }
-  });
-  pc.addEventListener("click", function(e){ e.stopPropagation(); });
-  pc.addEventListener("change", function(){
-    // Unpacking and pretty-printing are mutually exclusive per path (W9).
-    if(pc.checked) state.pretty.add(path); else state.pretty.delete(path);
-    render(); renderPreview();
-  });
-  bar.addEventListener("click", function(e){ e.stopPropagation(); });
-  return bar;
+    const grp = el("div", "handling-btns");
+    const btn = el("button", "btn-sm", state.unpacked.has(path) ? "Collapse back to string" : "Unpack");
+    btn.disabled = state.pretty.has(path) || state.provisional;
+    btn.addEventListener("click", function(){
+      if(state.unpacked.has(path)) collapseUnpack(path);
+      else doUnpack(path);
+    });
+    grp.appendChild(btn);
+    if(info && info.residue.length){
+      const b = el("button", "btn-sm", info.residue.length < RESIDUE_INLINE
+        ? "Fix " + info.residue.length + " inline" : "Residue…");
+      b.addEventListener("click", function(){ openResidue(path); });
+      grp.appendChild(b);
+    }
+    s.appendChild(handlingRow("Unpack into child paths", info && state.unpacked.has(path)
+      ? num(info.parsed) + " parsed clean · " + num(info.repaired) + " repaired · " +
+        num(info.residue.length) + " residue. Collapsing drops any selection beneath this path."
+      : "Repair this path's JSON and graft the structure in as real, selectable children. " +
+        num(parsedCount) + " of " + num(parsedCount + failCount) + " parse as they stand · " +
+        num(failCount) + " fail.", grp));
+
+    const pc = el("input");
+    pc.type = "checkbox";
+    pc.checked = state.pretty.has(path);
+    pc.disabled = state.unpacked.has(path);
+    pc.setAttribute("aria-label", "Pretty-print " + path + " on export");
+    pc.addEventListener("change", function(){
+      // Unpacking and pretty-printing are mutually exclusive per path (W9).
+      if(pc.checked) state.pretty.add(path); else state.pretty.delete(path);
+      render(); renderPreview(); renderPrettyNote(); renderDetail();
+    });
+    s.appendChild(handlingRow("Pretty-print on export", state.unpacked.has(path)
+      ? "Unavailable while this path is unpacked — the string is gone, its children carry the values."
+      : "Indent this field's JSON in the exported file. Changes the text, not the structure.", pc));
+  }
+
+  return s;
+}
+
+// The Export panel lists pretty-print among its options (§5) but does not own it —
+// it is per path, and its exclusivity with unpack is only legible next to unpack.
+function renderPrettyNote(){
+  const n = state.pretty.size;
+  $("prettyNote").textContent = n
+    ? "Pretty-print embedded JSON: " + num(n) + (n === 1 ? " path" : " paths")
+    : "Pretty-print embedded JSON: off";
+}
+
+// The graft itself is not undone — that would need a re-scan — so the children stay
+// in the tree, greyed by nothing and still tickable. What must go is any *selection*
+// beneath the path: with the path no longer in `unpacked`, `project` walks into a
+// string and returns undefined, so those columns would export silently empty. The
+// old row checkbox left exactly that trap behind.
+function collapseUnpack(path){
+  state.unpacked.delete(path);
+  const drop = selectedInOrder().filter(function(p){ return DW.underPath(p, path); });
+  if(drop.length) selectPaths(drop, false);
+  render(); renderPreview(); renderDetail();
 }
 
 function doUnpack(path){
@@ -3869,7 +3961,7 @@ function doUnpack(path){
     state.expanded.add(path);
     status("expStatus", "ok", num(m.parsed) + " parsed cleanly · " + num(m.repaired) + " repaired · " +
       num(m.residue.length) + " residue");
-    render(); renderWarnings(); renderExplodeOptions(); renderPreview();
+    render(); renderWarnings(); renderExplodeOptions(); renderPreview(); renderDetail();
   });
 }
 
@@ -3921,7 +4013,7 @@ function renderFlat(){
     const tdp = el("td", "path", r.path);
     tdp.title = r.path;
     tr.appendChild(tdp);
-    tr.appendChild(el("td", null, typeBadges(r.node).join(", ")));
+    tr.appendChild(el("td", null, typeBadges(r.node).concat(stateChips(r.path)).join(", ")));
     const tsz = el("td", null, sizeText(r.node));
     tsz.title = tsz.textContent;
     tr.appendChild(tsz);
@@ -4050,6 +4142,9 @@ function renderDetail(){
   for(const e of node.inferred) badges.appendChild(el("span", "badge inf", "→ " + e[0] + " ×" + num(e[1])));
   head.appendChild(badges);
   host.appendChild(head);
+
+  const handling = handlingSection(node, path);
+  if(handling) host.appendChild(handling);
 
   const stats = el("div", "section");
   const grid = el("div", "stats");

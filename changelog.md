@@ -14,6 +14,31 @@
 > dialog. When you edit here, paste the result there too — the inlined copy is the
 > one users read.
 
+## v1.2.1
+
+Per-path handling moves out of the tree.
+
+- **`as one column`, `parse as JSON` and `pretty-print` are no longer bare checkboxes
+  hanging under a tree row.** Sitting one indent below the *selection* checkbox, they
+  read as more selection, which none of them is — one is a one-shot action that
+  rewrites the skeleton, one redefines what selection means beneath it, and one is a
+  deferred export flag. They also injected a ragged half-row between the aligned rows
+  W22 exists to align. All three now live in a **Handling** block at the top of the
+  **Path detail** pane, which the row click already opens (W24).
+- **They say what they do.** A pane has width for a label and a sentence, which a tree
+  row does not: *Keep whole — one column*, *Unpack into child paths*,
+  *Pretty-print on export*, each with its effect written beside it and its state — keys
+  kept, values parsed, repaired and residue — spelled out rather than abbreviated.
+- **Unpack is a button, not a checkbox**, because it is an action that rewrites the
+  tree, not a setting. Undo is *Collapse back to string*, in the same place.
+- **The row reads the state back.** A path with handling set carries a green chip in
+  its type cell — `one column`, `unpacked`, `pretty` — so nothing set in the pane is
+  invisible where you scan. Green separates *you did this* from the blue chips the
+  scan inferred. The Flat view shows the same chips.
+- **The Export panel names pretty-print without owning it** — a readout of how many
+  paths have it, pointing at Path detail. It is per path, and its exclusivity with
+  unpack is only legible next to unpack.
+
 ## v1.2.0
 
 The fixer, reworked. Every item below is a value that used to land in residue, or

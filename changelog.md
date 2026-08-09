@@ -10,52 +10,29 @@
 > tag. Workflow: find a entry here → read its section in the spec →
 > implement → remove the tag.
 
-> **Nothing is built yet.** Every entry below is. Build order and the
-> reasoning behind it are in `architecture.md` → "Planned".
-
-## v1.3.0
-
-- **Progressive scanning** — the tree appears within about a second from the first
-  ~1,000 records and refines as the scan runs, instead of holding a progress bar for
-  up to a minute. Percentages tick, new paths appear, and the report carries a
-  "provisional" badge until the scan completes. Selection works while scanning.
-  Full design in `specifications.md` → Behaviour → "Scan" (W13).
-- **Recipe files** — save the whole configuration (selected paths, unpack toggles,
-  explode-by, flatten, split settings, line-break mode, sort, format, record path) as
-  a ~2 KB `.recipe.json`, and load it onto another file. Loading reconciles by path
-  and reports what matched, what is missing, and what is new. No browser storage, so
-  recipes work identically on `file://` and Pages. `specifications.md` → Persistence
-  (W14).
-
-## v1.2.0
-
-- **JSON Fixer** — repairs JSON stored inside string values, the standard failure mode
-  of model-generated fields. Twelve deterministic rules (quote style, smart quotes,
-  stray brackets, trailing and missing commas, unquoted keys and values, `=` for `:`,
-  Python literals, comments, invisible characters, interior quotes) run as a
-  **verify-loop**: a fix is accepted only when the result actually parses, tie-broken
-  on fewest characters changed. Anything it cannot fix is returned byte-identical
-  with the parser's reason. Replaces an agentic step — no network call, immune to
-  prompt injection, and it cannot translate multilingual payloads by accident.
-  `specifications.md` → Behaviour → "JSON fixer" (W6–W8).
-- **Unpack embedded JSON** — a per-path "parse as JSON" toggle repairs a path's values
-  and grafts their structure into the skeleton as real, selectable children with full
-  statistics. Recursion is manual, one level per toggle.  (W9)
-- **Residue handling** — values the verify-loop provably cannot fix are surfaced two
-  ways: an inline editor when there are fewer than 50, or a downloadable residue file
-  that can be repaired externally and merged back in on record index + path. (W10)
-- **Duplicate-key detection** — reported pre-parse, since `JSON.parse` silently keeps
-  the last occurrence and destroys the evidence.
+> **This file is also inlined in `index.html`** and shown by the in-app changelog
+> dialog. When you edit here, paste the result there too — the inlined copy is the
+> one users read.
 
 ## v1.1.0
 
-- **Statistics on three surfaces**, each with a distinct job: a persistent **summary
-  strip** for file-level facts (records, paths, depth, failures, size, format); a
-  **Stats tab** for comparison across paths (sparsest fields ranked, type conflicts,
-  cardinality, heaviest fields by bytes); and a **Path detail pane** for one path in
-  depth (length histogram, value distribution, top values, null rate, array length
-  spread). Clicking a tree row flips the right pane from Preview to Path detail.
-  `specifications.md` → Behaviour → "Skeleton and statistics" (W11).
+- **Containers can stay whole** — a nested object no longer has to be exported as a
+  scatter of leaf columns. Any container row gains an **as one column** toggle: the
+  path itself becomes the column and its value is written as JSON. Deselecting a
+  sub-node repackages the object without that key rather than decomposing it; with
+  everything ticked the output is the original object, key order intact. Nested
+  containers resolve to the outer one, and a container with everything deselected
+  emits `{}` so CSV headers stay stable between exports. `specifications.md` →
+  Behaviour → "Selection" (W21).
+- **The tree row is a column grid** — path, type, size, example and presence each get
+  their own column instead of one ragged `·`-joined string, so a file's field sizes
+  and examples can be scanned down the page. Type badges drop their counts unless the
+  node's types are actually split. The Flat view gains the same size column; the
+  TSV/Markdown/JSON Schema emits are unchanged. (W22)
+- **Help and changelog are dialogs** — both open from the rail rather than living at
+  the bottom of the page, and the changelog is one of them rather than a section
+  inside the other. The changelog ships inlined in the page, so it works over
+  `file://` with no network request. (W23)
 
 ## v1.0.0
 
@@ -70,6 +47,10 @@ JSONL-to-CSV converter into one single-file tool. None of the three are retired.
   export, holding peak memory to roughly 1× file size. JSONL and CSV stream to a
   500 MB target; JSON, YAML and XML are capped at 200 MB with the reason stated (W3,
   W4).
+- **Progressive scanning** — the tree appears within about a second from the first
+  ~1,000 records and refines as the scan runs, instead of holding a progress bar for
+  up to a minute. Percentages tick, new paths appear, and the report carries a
+  "provisional" badge until the scan completes. Selection works while scanning (W13).
 - **Path selection** — checkboxes in both the Tree and Flat views, driving one shared
   selection set. The Flat view gains search and sort; the emit dropdown (bare list,
   TSV, Markdown, JSON Schema) gains a Selected / All switch (W16).
@@ -80,6 +61,29 @@ JSONL-to-CSV converter into one single-file tool. None of the three are retired.
 - **Map-aware selection** — collapsed `{*}` nodes project as objects keyed by the map
   key, are tickable as the key itself, and can be exploded into one row per entry
   (W19).
+- **JSON Fixer** — repairs JSON stored inside string values, the standard failure mode
+  of model-generated fields. Twelve deterministic rules (quote style, smart quotes,
+  stray brackets, trailing and missing commas, unquoted keys and values, `=` for `:`,
+  Python literals, comments, invisible characters, interior quotes) run as a
+  **verify-loop**: a fix is accepted only when the result actually parses, tie-broken
+  on fewest characters changed. Anything it cannot fix is returned byte-identical
+  with the parser's reason. Replaces an agentic step — no network call, immune to
+  prompt injection, and it cannot translate multilingual payloads by accident
+  (W6–W8).
+- **Unpack embedded JSON** — a per-path "parse as JSON" toggle repairs a path's values
+  and grafts their structure into the skeleton as real, selectable children with full
+  statistics. Recursion is manual, one level per toggle (W9).
+- **Residue handling** — values the verify-loop provably cannot fix are surfaced two
+  ways: an inline editor when there are fewer than 50, or a downloadable residue file
+  that can be repaired externally and merged back in on record index + path (W10).
+- **Duplicate-key detection** — reported pre-parse, since `JSON.parse` silently keeps
+  the last occurrence and destroys the evidence.
+- **Statistics on three surfaces**, each with a distinct job: a persistent **summary
+  strip** for file-level facts (records, paths, depth, failures, size, format); a
+  **Stats tab** for comparison across paths (sparsest fields ranked, type conflicts,
+  cardinality, heaviest fields by bytes); and a **Path detail pane** for one path in
+  depth (length histogram, value distribution, top values, null rate, array length
+  spread). Clicking a tree row flips the right pane from Preview to Path detail (W11).
 - **Preview table** over the first ~200 records, with per-row expansion to the literal
   output line. Preview and export share one pipeline implementation, so the preview
   cannot drift from what gets written (W18).
@@ -91,6 +95,11 @@ JSONL-to-CSV converter into one single-file tool. None of the three are retired.
   cannot round-trip, in both formats (W15).
 - **Warnings panel** consolidating parse failures, ragged CSV rows, precision loss,
   flatten and split collisions, oversize values, and duplicate keys.
+- **Recipe files** — save the whole configuration (selected paths, unpack toggles,
+  explode-by, flatten, split settings, line-break mode, sort, format, record path) as
+  a ~2 KB `.recipe.json`, and load it onto another file. Loading reconciles by path
+  and reports what matched, what is missing, and what is new. No browser storage, so
+  recipes work identically on `file://` and Pages (W14).
 - **Redact toggle** strips previews, enums and value labels from the structural
   surfaces and structural exports. It does not blank the preview table — it is a
   report-hygiene switch, not a screen-share switch (W20).

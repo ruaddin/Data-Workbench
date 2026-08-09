@@ -231,7 +231,9 @@ main{flex:1; min-width:0; padding:40px 48px 80px; display:flex; flex-direction:c
 }
 .trow:hover{background:var(--surface-2)}
 .trow.sel{background:var(--blue-tint)}
-.trow .box{flex:none;width:15px;height:15px;accent-color:var(--blue);cursor:pointer}
+/* margin:0 matters: the UA's default checkbox margin is ~7px, which would put the
+   row's cells out of step with the W22 header, whose offsets are computed. */
+.trow .box{flex:none;width:15px;height:15px;margin:0;accent-color:var(--blue);cursor:pointer}
 .trow .box.off{visibility:hidden}
 .tw{
   width:16px;flex:none;text-align:center;cursor:pointer;color:var(--text-3);
@@ -240,7 +242,7 @@ main{flex:1; min-width:0; padding:40px 48px 80px; display:flex; flex-direction:c
 .tw.leaf{visibility:hidden;cursor:default}
 .tname{
   font-family:var(--font-mono);color:var(--text-1);white-space:nowrap;
-  overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:40px;
+  overflow:hidden;text-overflow:ellipsis;flex:1 1 auto;min-width:40px;
 }
 .tname.map{color:var(--cat-2)}
 .tname.arr{color:var(--text-3)}
@@ -250,9 +252,42 @@ main{flex:1; min-width:0; padding:40px 48px 80px; display:flex; flex-direction:c
 }
 .badge.inf{background:var(--blue-tint);color:var(--blue);border-color:transparent}
 .badge.warn{background:var(--red-tint);color:var(--red);border-color:transparent}
-.tdet{
-  flex:1 1 auto;min-width:0;color:var(--text-3);font-size:11.5px;font-family:var(--font-mono);
+/* W22 — everything right of the name is fixed-width, so the columns land on the
+   same x at every depth. `.kids` indents by margin/padding on the left only, so
+   all rows share a right edge; no grid and no subgrid is needed to align them. */
+.ttype{
+  flex:none;width:130px;display:flex;gap:4px;align-items:center;overflow:hidden;
+}
+.badge.more{background:transparent;color:var(--text-3);cursor:default}
+.tsize{
+  flex:none;width:160px;color:var(--text-3);font-size:11.5px;font-family:var(--font-mono);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.tex{
+  flex:none;width:200px;color:var(--text-3);font-size:11.5px;font-family:var(--font-mono);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+/* The header sits outside #reportBody. Rows never scroll horizontally — every cell
+   ellipsises — so there is nothing to keep it in sync with, and sticky buys nothing.
+   It mirrors the row's flex exactly: one growing name cell, everything else fixed
+   and packed right. 47px is the row's twisty + checkbox + their two gaps. */
+.thead{
+  display:flex;align-items:center;gap:8px;flex:none;padding:6px 16px;
+  border-bottom:1px solid var(--border);background:var(--surface-2);
+  font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3);
+}
+.thead span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.thead .h-name{flex:1 1 auto;min-width:40px;margin-left:47px}
+.thead .h-type{flex:none;width:130px}
+.thead .h-size{flex:none;width:160px}
+.thead .h-ex{flex:none;width:200px}
+.thead .h-pres{flex:none;width:108px;text-align:right}
+/* The name is the only shrinkable cell, so the fixed ones hold their x until it
+   hits min-width and the row overflows. Narrow panes buy that headroom back by
+   trading away example width, which is the cell that degrades most gracefully. */
+@media (max-width:1500px){
+  .tex,.thead .h-ex{width:150px}
+  .tsize,.thead .h-size{width:140px}
 }
 .pbar{flex:none;width:48px;height:6px;background:var(--surface-2);border-radius:var(--r-pill);overflow:hidden}
 .pbar > span{display:block;height:100%;background:var(--blue)}
@@ -336,6 +371,14 @@ dialog p{font-size:12px;color:var(--text-2);line-height:1.5;margin:0 0 16px}
 .res-item{border:1px solid var(--border);border-radius:var(--r-md);padding:10px;margin-bottom:10px}
 .res-item .head{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--text-3);margin-bottom:6px;flex-wrap:wrap}
 .res-item .head .why{color:var(--red);font-family:var(--font-mono)}
+dialog h2 .ver{font-family:var(--font-mono);font-size:11.5px;font-weight:400;color:var(--text-3);margin-left:6px}
+.md h3{font-size:13px;font-weight:600;margin:18px 0 8px;color:var(--text-1);font-family:var(--font-mono)}
+.md h3:first-child{margin-top:0}
+.md ul{margin:0;padding-left:20px}
+.md li{font-size:12.5px;color:var(--text-2);line-height:1.65;margin-bottom:7px}
+.md p{font-size:12.5px;color:var(--text-2);line-height:1.65;margin:0 0 10px}
+.md code{font-family:var(--font-mono);font-size:11.5px;background:var(--surface-2);
+  border-radius:var(--r-sm);padding:1px 4px}
 .res-item textarea{font-family:var(--font-mono);font-size:11.5px;width:100%;min-height:80px;
   background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-sm);
   color:var(--text-1);padding:8px;resize:vertical}
@@ -372,6 +415,9 @@ dialog p{font-size:12px;color:var(--text-2);line-height:1.5;margin:0 0 16px}
       </button>
       <button class="rail-btn" id="helpBtn" aria-label="How to read this report">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.7v.3"/><path d="M12 17h.01"/></svg>
+      </button>
+      <button class="rail-btn" id="logBtn" aria-label="Changelog">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
       </button>
     </div>
   </nav>
@@ -506,6 +552,14 @@ dialog p{font-size:12px;color:var(--text-2);line-height:1.5;margin:0 0 16px}
           <button class="btn-sm" id="emitDl">Download</button>
         </div>
 
+        <div class="thead" id="treeHead">
+          <span class="h-name">path</span>
+          <span class="h-type">type</span>
+          <span class="h-size">size</span>
+          <span class="h-ex">example</span>
+          <span class="h-pres">present</span>
+        </div>
+
         <div class="body" id="reportBody">
           <div id="treeView" class="tree"></div>
           <div id="flatView" class="table-wrap hidden"></div>
@@ -595,9 +649,15 @@ dialog p{font-size:12px;color:var(--text-2);line-height:1.5;margin:0 0 16px}
       </div>
     </section>
 
-    <details class="disclosure">
-      <summary>How to read this report</summary>
-      <ul style="font-size:13px;color:var(--text-2);line-height:1.8;margin:10px 0 0;padding-left:20px">
+  </main>
+</div>
+
+<div id="dropOverlay" class="hidden">Drop to load</div>
+
+<dialog id="helpDlg" aria-labelledby="helpTitle">
+  <h2 id="helpTitle">How to read this report</h2>
+  <div class="dlg-body">
+      <ul style="font-size:13px;color:var(--text-2);line-height:1.8;margin:0;padding-left:20px">
         <li><strong>Presence is relative to the parent.</strong> If <code>a.b</code> occurs 50 times and
             <code>a.b.c</code> in all 50 of those, <code>c</code> reads 100%. Tick <em>absolute presence</em>
             to score against the total record count. Inside an array the denominator is the number of elements.</li>
@@ -614,12 +674,24 @@ dialog p{font-size:12px;color:var(--text-2);line-height:1.5;margin:0 0 16px}
         <li><strong>Redact</strong> strips previews, enums and value labels from the tree, Stats and Path detail,
             and from the structural exports. It deliberately does <em>not</em> blank the preview table or the
             exported data — it is a report-hygiene switch, not a screen-share switch.</li>
+        <li><strong>A container can stay whole.</strong> Any object or array row carries an
+            <em>as one column</em> toggle: the path itself becomes the column and its value is written
+            as JSON. Unticking a sub-node repackages the object without that key rather than splitting
+            it into separate columns.</li>
       </ul>
-    </details>
-  </main>
-</div>
+  </div>
+  <div class="dlg-foot">
+    <button class="btn btn-secondary" id="helpClose">Close</button>
+  </div>
+</dialog>
 
-<div id="dropOverlay" class="hidden">Drop to load</div>
+<dialog id="logDlg" aria-labelledby="logTitle">
+  <h2 id="logTitle">Changelog <span class="ver" id="logVer"></span></h2>
+  <div class="dlg-body md" id="logBody"></div>
+  <div class="dlg-foot">
+    <button class="btn btn-secondary" id="logClose">Close</button>
+  </div>
+</dialog>
 
 <dialog id="residueDlg" aria-labelledby="residueTitle">
   <h2 id="residueTitle">Residue</h2>
@@ -1282,6 +1354,15 @@ function childPath(path, key){
   return path ? path + "." + key : key;
 }
 
+// Strict descendant test on *steps*, not strings — "a.bc" must not read as a child
+// of "a.b" (W21).
+function underPath(path, ancestor){
+  const a = readers.parsePath(ancestor), p = readers.parsePath(path);
+  if(a.length >= p.length) return false;
+  for(let i = 0; i < a.length; i++) if(a[i] !== p[i]) return false;
+  return true;
+}
+
 function nodeAt(model, path){
   if(path === "") return model.root;
   let node = model.root;
@@ -1745,6 +1826,48 @@ function project(v, steps, i, unpackAt){
   return project(next, steps, i + 1, unpackAt);
 }
 
+/* --- W21: packaging a container's selected subtree into one value ---
+   `keep` is a list of step-arrays relative to the container. They are folded into a
+   trie once per plan, then walked alongside the value. A terminal node means "keep
+   everything from here down", which is what makes `{*}` (whole map) and a fully
+   ticked object come out identical to the source. */
+
+function keepTree(keep){
+  const root = {end:false, kids:new Map()};
+  for(const steps of keep){
+    let n = root;
+    for(const s of steps){
+      let k = n.kids.get(s);
+      if(!k){ k = {end:false, kids:new Map()}; n.kids.set(s, k); }
+      n = k;
+    }
+    n.end = true;
+  }
+  return root;
+}
+
+// Iterates the *source* object's own keys rather than the trie's, so key order
+// survives and a fully ticked container is byte-identical to what came in.
+function prune(v, t){
+  if(t.end || t.kids.size === 0) return v;
+  if(Array.isArray(v)){
+    const a = t.kids.get("[]");
+    if(!a) return v;
+    const out = [];
+    for(const el of v) out.push(prune(el, a));
+    return out;
+  }
+  if(!plain(v)) return v;
+  const star = t.kids.get("{*}");
+  const out = {};
+  for(const k in v){
+    if(!has(v, k)) continue;
+    const kid = t.kids.get(k) || star;
+    if(kid) out[k] = prune(v[k], kid);
+  }
+  return out;
+}
+
 // Elements of the one collection named by explode-by. One row unit, ever — which
 // is what stops the cross-product (W5). `unpackAt` names the step indices whose
 // value is embedded JSON that has to be repaired and parsed on the way through,
@@ -1798,23 +1921,71 @@ function plan(opts, model){
       if(us.length && startsWith(explodeSteps, us)) explodeUnpack.add(us.length - 1);
     }
   }
+  // W21. A container only packages if it is *itself* selected — its checkbox is the
+  // column's on/off switch — so an entry in `whole` that nobody ticked swallows
+  // nothing, and its descendants fall back to being ordinary columns.
+  const sel = new Set(opts.selected);
+  const wholeSteps = new Map();
+  for(const w of (opts.whole || [])) if(sel.has(w)) wholeSteps.set(w, readers.parsePath(w));
+
+  // Outer wins: a container nested inside another packaged container is already
+  // part of that one's JSON. Its entry is dropped rather than kept as a waypoint,
+  // because a waypoint would terminate the keep-trie and quietly restore the very
+  // sub-nodes the user deselected beneath it. The UI disables the inner toggle;
+  // this normalises the same case arriving from a hand-edited recipe.
+  const nested = new Set();
+  for(const a of wholeSteps) for(const b of wholeSteps){
+    if(a[0] !== b[0] && b[1].length < a[1].length && startsWith(a[1], b[1])) nested.add(a[0]);
+  }
+  for(const p of nested) wholeSteps.delete(p);
+
+  // Nearest *strict* whole ancestor. "Nearest" is what makes nested containers
+  // resolve to the outer one without a special case: the outer's JSON already
+  // contains the inner, so the inner never needs a column of its own.
+  function hostOf(p, steps){
+    let host = null, len = -1;
+    for(const e of wholeSteps){
+      if(e[0] === p) continue;
+      if(e[1].length > len && startsWith(steps, e[1])){ host = e[0]; len = e[1].length; }
+    }
+    return host;
+  }
+
   const columns = [];
+  const byPath = new Map();
+  const stepsOf = new Map();
+  for(const p of opts.selected) stepsOf.set(p, readers.parsePath(p));
+
   for(const p of opts.selected){
-    const steps = readers.parsePath(p);
+    const steps = stepsOf.get(p);
+    if(hostOf(p, steps) !== null) continue;             // packaged by an ancestor
     const unpackAt = new Set();
     for(const u of unpacked){
       const us = readers.parsePath(u);
       if(us.length && startsWith(steps, us)) unpackAt.add(us.length - 1);
     }
     const under = explodeSteps && startsWith(steps, explodeSteps);
-    columns.push({
+    const col = {
       path:p, steps:steps, unpackAt:unpackAt, under:!!under,
       rest: under ? steps.slice(explodeSteps.length) : null,
       restUnpack: under ? new Set(Array.from(unpackAt)
                     .filter(function(i){ return i >= explodeSteps.length; })
-                    .map(function(i){ return i - explodeSteps.length; })) : null
-    });
+                    .map(function(i){ return i - explodeSteps.length; })) : null,
+      keep: wholeSteps.has(p) ? [] : null, tree: null
+    };
+    byPath.set(p, col);
+    columns.push(col);
   }
+
+  // Second pass: a leaf may be ordered before the container that packages it.
+  for(const p of opts.selected){
+    const steps = stepsOf.get(p);
+    const host = hostOf(p, steps);
+    if(host === null || nested.has(p)) continue;
+    const col = byPath.get(host);
+    if(col && col.keep) col.keep.push(steps.slice(wholeSteps.get(host).length));
+  }
+  for(const c of columns) if(c.keep) c.tree = keepTree(c.keep);
   let rowCount = model ? model.recordCount : null;
   const warnings = [];
   if(explodeSteps && model){
@@ -1995,6 +2166,11 @@ function buildRow(unit, P){
     } else {
       v = project(unit.rec, c.steps, 0, c.unpackAt);
     }
+    // W21. Packaged the moment it is projected, so every later stage — explode,
+    // flatten, split, line breaks — sees an ordinary value. An empty keep-list is
+    // a container with everything deselected: it emits {} so a CSV header keeps
+    // its width between two exports of one file.
+    if(v !== undefined && c.keep) v = c.keep.length ? prune(v, c.tree) : {};
     if(v !== undefined) row[c.path] = v;
   }
   return row;
@@ -2038,7 +2214,9 @@ function* run(records, opts, sink){
   sink = sink || NULL_SINK;
   const P = plan(opts, null);
   const csv = opts.format === "csv";
-  let cols = opts.selected.slice();
+  // From the plan, not from `selected`: a path packaged into a container (W21) is
+  // selected but is not a column of its own.
+  let cols = P.columns.map(function(c){ return c.path; });
   if(csv && (opts.flatten || opts.split)) cols = discoverColumns(records, opts, P, sink);
 
   let order = null;
@@ -2105,7 +2283,7 @@ function preview(records, opts, limit, sink){
     rows.push(row);
     n++;
   }
-  if(!opts.flatten && !opts.split) cols = opts.selected.slice();
+  if(!opts.flatten && !opts.split) cols = P.columns.map(function(c){ return c.path; });
   for(const row of rows) lines.push(csv ? csvRow(row, cols) : JSON.stringify(row));
   return {columns:cols, rows:rows, lines:lines, header: csv ? cols.map(csvCell).join(",") : null};
 }
@@ -2267,6 +2445,7 @@ return {
 return {
   detect:detect, infer:infer, readers:readers, skeleton:skeleton, fix:fix,
   pipeline:pipeline, engine:engine, typeOf:typeOf, childPath:childPath, nodeAt:nodeAt,
+  underPath:underPath,
   valueRefs:valueRefs, plain:plain, has:has, PREVIEW:PREVIEW, MAX_SAFE:MAX_SAFE,
   LEN_EDGES:LEN_EDGES
 };
@@ -2324,7 +2503,7 @@ const state = {
   source:null, label:"workbench", size:0, detected:null,
   model:null, stats:null, provisional:false, scanning:false,
   slice:[], warnings:[],
-  selected:new Set(), selectionOrder:[], unpacked:new Set(), pretty:new Set(),
+  selected:new Set(), selectionOrder:[], unpacked:new Set(), pretty:new Set(), whole:new Set(),
   unpackInfo:new Map(),
   tab:"tree", sideTab:"preview", detailPath:null,
   sort:"doc", absolute:false, redact:false, expanded:new Set(),
@@ -2380,12 +2559,158 @@ function paintTheme(){
 }
 paintTheme();
 $("themeBtn").addEventListener("click", function(){ theme = theme === "dark" ? "light" : "dark"; paintTheme(); });
-$("helpBtn").addEventListener("click", function(){
-  const d = document.querySelectorAll("main > details.disclosure");
-  const last = d[d.length - 1];
-  last.open = true;
-  last.scrollIntoView({behavior:"smooth", block:"center"});
+/* ---------- help and changelog (W23) ---------- */
+
+const VERSION = "1.1.0";
+
+// W1 forbids runtime network requests and `file://` blocks fetch regardless, so the
+// changelog ships inside the page. It is the *text of* changelog.md, verbatim — the
+// two are kept in step by paste, which is what stops the in-app copy drifting.
+const CHANGELOG_MD = `
+## v1.1.0
+
+- **Containers can stay whole** — a nested object no longer has to be exported as a
+  scatter of leaf columns. Any container row gains an **as one column** toggle: the
+  path itself becomes the column and its value is written as JSON. Deselecting a
+  sub-node repackages the object without that key rather than decomposing it; with
+  everything ticked the output is the original object, key order intact. Nested
+  containers resolve to the outer one, and a container with everything deselected
+  emits \`{}\` so CSV headers stay stable between exports. \`specifications.md\` →
+  Behaviour → "Selection" (W21).
+- **The tree row is a column grid** — path, type, size, example and presence each get
+  their own column instead of one ragged \`·\`-joined string, so a file's field sizes
+  and examples can be scanned down the page. Type badges drop their counts unless the
+  node's types are actually split. The Flat view gains the same size column; the
+  TSV/Markdown/JSON Schema emits are unchanged. (W22)
+- **Help and changelog are dialogs** — both open from the rail rather than living at
+  the bottom of the page, and the changelog is one of them rather than a section
+  inside the other. The changelog ships inlined in the page, so it works over
+  \`file://\` with no network request. (W23)
+
+## v1.0.0
+
+First release. Consolidates Data Skeleton Script, JSONL Splitter and the Python
+JSONL-to-CSV converter into one single-file tool. None of the three are retired.
+
+- Merged structure skeleton across JSON, JSONL/NDJSON, CSV/TSV, XML/HTML and YAML,
+  with content-based format detection, presence math relative to parent, type
+  inference on all strings, map collapsing, and full array walking — the whole
+  Data Skeleton engine, carried over intact (D1–D19).
+- **Records retained in the Web Worker** with streamed decoding and chunked Blob
+  export, holding peak memory to roughly 1× file size. JSONL and CSV stream to a
+  500 MB target; JSON, YAML and XML are capped at 200 MB with the reason stated (W3,
+  W4).
+- **Progressive scanning** — the tree appears within about a second from the first
+  ~1,000 records and refines as the scan runs, instead of holding a progress bar for
+  up to a minute. Percentages tick, new paths appear, and the report carries a
+  "provisional" badge until the scan completes. Selection works while scanning (W13).
+- **Path selection** — checkboxes in both the Tree and Flat views, driving one shared
+  selection set. The Flat view gains search and sort; the emit dropdown (bare list,
+  TSV, Markdown, JSON Schema) gains a Selected / All switch (W16).
+- **CSV and JSONL export** from the selected paths. Paths inside arrays project into
+  a single JSON-array column, preserving one row per record; a single **explode-by**
+  picker switches the row unit to one collection's elements and announces the
+  resulting row count before you run it (W5).
+- **Map-aware selection** — collapsed \`{*}\` nodes project as objects keyed by the map
+  key, are tickable as the key itself, and can be exploded into one row per entry
+  (W19).
+- **JSON Fixer** — repairs JSON stored inside string values, the standard failure mode
+  of model-generated fields. Twelve deterministic rules (quote style, smart quotes,
+  stray brackets, trailing and missing commas, unquoted keys and values, \`=\` for \`:\`,
+  Python literals, comments, invisible characters, interior quotes) run as a
+  **verify-loop**: a fix is accepted only when the result actually parses, tie-broken
+  on fewest characters changed. Anything it cannot fix is returned byte-identical
+  with the parser's reason. Replaces an agentic step — no network call, immune to
+  prompt injection, and it cannot translate multilingual payloads by accident
+  (W6–W8).
+- **Unpack embedded JSON** — a per-path "parse as JSON" toggle repairs a path's values
+  and grafts their structure into the skeleton as real, selectable children with full
+  statistics. Recursion is manual, one level per toggle (W9).
+- **Residue handling** — values the verify-loop provably cannot fix are surfaced two
+  ways: an inline editor when there are fewer than 50, or a downloadable residue file
+  that can be repaired externally and merged back in on record index + path (W10).
+- **Duplicate-key detection** — reported pre-parse, since \`JSON.parse\` silently keeps
+  the last occurrence and destroys the evidence.
+- **Statistics on three surfaces**, each with a distinct job: a persistent **summary
+  strip** for file-level facts (records, paths, depth, failures, size, format); a
+  **Stats tab** for comparison across paths (sparsest fields ranked, type conflicts,
+  cardinality, heaviest fields by bytes); and a **Path detail pane** for one path in
+  depth (length histogram, value distribution, top values, null rate, array length
+  spread). Clicking a tree row flips the right pane from Preview to Path detail (W11).
+- **Preview table** over the first ~200 records, with per-row expansion to the literal
+  output line. Preview and export share one pipeline implementation, so the preview
+  cannot drift from what gets written (W18).
+- Export transforms: **flatten** nested keys to dotted paths, **split** over-long
+  top-level strings at a configurable cap, **remove line breaks**, **pretty-print**
+  embedded JSON, and **sort rows** by any selected column (W2, W12).
+- **Number guards** — integers above 2^53−1 are quoted on CSV export so 19-digit ids
+  survive a spreadsheet, and precision-loss warnings fire on any numeric literal that
+  cannot round-trip, in both formats (W15).
+- **Warnings panel** consolidating parse failures, ragged CSV rows, precision loss,
+  flatten and split collisions, oversize values, and duplicate keys.
+- **Recipe files** — save the whole configuration (selected paths, unpack toggles,
+  explode-by, flatten, split settings, line-break mode, sort, format, record path) as
+  a ~2 KB \`.recipe.json\`, and load it onto another file. Loading reconciles by path
+  and reports what matched, what is missing, and what is new. No browser storage, so
+  recipes work identically on \`file://\` and Pages (W14).
+- **Redact toggle** strips previews, enums and value labels from the structural
+  surfaces and structural exports. It does not blank the preview table — it is a
+  report-hygiene switch, not a screen-share switch (W20).
+- Single self-contained \`index.html\`. No build step, no framework, zero network
+  requests at runtime. Runs from \`file://\` and from GitHub Pages (W1).
+`;
+
+// Deliberately covers only what changelog.md uses: ## headings, - bullets, **bold**
+// and \`code\`. Anything else is left as text rather than silently half-rendered.
+function renderMarkdown(md, host){
+  host.innerHTML = "";
+  const inline = function(s, into){
+    const re = /\*\*([^*]+)\*\*|`([^`]+)`/g;
+    let last = 0, m;
+    while((m = re.exec(s)) !== null){
+      if(m.index > last) into.appendChild(document.createTextNode(s.slice(last, m.index)));
+      into.appendChild(el(m[1] ? "strong" : "code", null, m[1] || m[2]));
+      last = re.lastIndex;
+    }
+    if(last < s.length) into.appendChild(document.createTextNode(s.slice(last)));
+  };
+  let list = null;
+  const para = [];
+  const flush = function(){
+    if(!para.length) return;
+    const li = el("li");
+    inline(para.join(" "), li);
+    if(!list){ list = el("ul"); host.appendChild(list); }
+    list.appendChild(li);
+    para.length = 0;
+  };
+  for(const raw of md.split("\n")){
+    const line = raw.trim();
+    if(line === ""){ flush(); continue; }
+    if(line.slice(0, 3) === "## "){
+      flush(); list = null;
+      host.appendChild(el("h3", null, line.slice(3)));
+      continue;
+    }
+    if(line[0] === "-" && line[1] === " "){ flush(); para.push(line.slice(2)); continue; }
+    if(para.length){ para.push(line); continue; }        // continuation of a bullet
+    flush(); list = null;
+    const p = el("p");
+    inline(line, p);
+    host.appendChild(p);
+  }
+  flush();
+}
+
+let logRendered = false;
+$("logBtn").addEventListener("click", function(){
+  if(!logRendered){ logRendered = true; renderMarkdown(CHANGELOG_MD, $("logBody")); }
+  $("logVer").textContent = "v" + VERSION;
+  $("logDlg").showModal();
 });
+$("logClose").addEventListener("click", function(){ $("logDlg").close(); });
+$("helpBtn").addEventListener("click", function(){ $("helpDlg").showModal(); });
+$("helpClose").addEventListener("click", function(){ $("helpDlg").close(); });
 
 /* ---------- intake ---------- */
 
@@ -2641,6 +2966,7 @@ function run(){
   state.unpacked = new Set();
   state.unpackInfo = new Map();
   state.pretty = new Set();
+  state.whole = new Set();
   hide("fatal"); hide("status"); hide("warnPanel");
   $("run").disabled = true;
   show("cancel");
@@ -2838,7 +3164,27 @@ function leavesOf(node, path){
   return out;
 }
 
+// W21. Whether a node can package its subtree into one column at all. `{*}` and
+// `[]` are excluded: `{*}` already projects whole (W19), and `[]` is not tickable.
+function canPackage(node){
+  return node.children.size > 0 && node.key !== "{*}" && node.key !== "[]";
+}
+
+// A container inside another packaged container is already nested in that one's
+// JSON, so its own toggle would do nothing. The outer wins; the inner reports why.
+function packagedBy(path){
+  let host = null;
+  for(const w of state.whole){
+    if(w === path) continue;
+    if(DW.underPath(path, w) && (host === null || w.length > host.length)) host = w;
+  }
+  return host;
+}
+
 function selState(node, path){
+  // In one-column mode the checkbox stops being a roll-up: it *is* the column's
+  // on/off switch, which is the only thing that makes an empty {} removable (W21).
+  if(state.whole.has(path)) return state.selected.has(path) ? "all" : "none";
   const leaves = leavesOf(node, path);
   if(!leaves.length) return "none";
   let on = 0;
@@ -2861,6 +3207,33 @@ function selectPaths(paths, on){
 
 function selectedInOrder(){
   return state.selectionOrder.filter(function(p){ return state.selected.has(p); });
+}
+
+// The one place the two meanings of a container checkbox are resolved (W21).
+function tickNode(node, path, on){
+  if(state.whole.has(path)){
+    // Unticking a packaged container removes the column outright rather than
+    // leaving a {} nobody can get rid of, so the toggle goes with it.
+    if(!on) state.whole.delete(path);
+    selectPaths(on ? [path] : [path].concat(leavesOf(node, path)), on);
+    return;
+  }
+  selectPaths(leavesOf(node, path), on);
+}
+
+// Flipping "as one column" on: the container becomes the column, and whatever was
+// already ticked beneath it becomes the keep-list — all of it, if none was.
+function setWhole(node, path, on){
+  if(on){
+    state.whole.add(path);
+    const leaves = leavesOf(node, path);
+    let any = false;
+    for(const l of leaves) if(state.selected.has(l)){ any = true; break; }
+    selectPaths(any ? [path] : [path].concat(leaves), true);
+  } else {
+    state.whole.delete(path);
+    selectPaths([path], false);
+  }
 }
 
 function afterSelectionChange(){
@@ -2903,12 +3276,27 @@ function typeList(node){
   return out;
 }
 
+// W22, views only. On a single-typed node the count restates the presence bar beside
+// it, so it is dropped; on a split node the count is the whole point, so it stays.
+// The emits, Stats and the detail pane keep `typeList` — they are read, not scanned.
+function typeBadges(node){
+  const out = [];
+  const one = node.types.size === 1;
+  for(const e of node.types) out.push(one ? e[0] : e[0] + " ×" + num(e[1]));
+  return out;
+}
+
 function isEmbedded(node){
   return (node.inferred.get("json") || 0) + (node.inferred.get("json?") || 0) > 0 &&
          (node.types.get("str") || 0) > 0;
 }
 
-function detailText(node){
+// W22. What used to be one ragged `·`-joined string is split at the source into the
+// two cells that carry it, so neither has to be parsed back out of the other.
+
+// "How big is this thing" — one polymorphic answer per node kind. A mixed-type node
+// is the only case that still joins, and the cell ellipsises with a title.
+function sizeText(node){
   const bits = [];
   if(node.strLenMin !== null) bits.push("len " + num(node.strLenMin) + "–" + num(node.strLenMax));
   if(node.numMin !== null) bits.push("num " + fmtNum(node.numMin) + "–" + fmtNum(node.numMax));
@@ -2918,16 +3306,18 @@ function detailText(node){
   }
   if(node.isMap) bits.push(num(node.childKeyCount) + " keys" +
     (!state.redact && node.sampleKeys.length ? " e.g. " + node.sampleKeys.slice(0, 3).join(", ") : ""));
-  if(!state.redact){
-    if(node.distinct && node.distinct.size){
-      const vals = [];
-      for(const v of node.distinct) vals.push(v);
-      bits.push("∈ " + vals.join(" | "));
-    } else if(node.preview !== null){
-      bits.push(JSON.stringify(node.preview));
-    }
-  }
   return bits.join("  ·  ");
+}
+
+// Enum set when the node has one, else the first value seen. Redact empties it (W20).
+function exampleText(node){
+  if(state.redact) return "";
+  if(node.distinct && node.distinct.size){
+    const vals = [];
+    for(const v of node.distinct) vals.push(v);
+    return "∈ " + vals.join(" | ");
+  }
+  return node.preview === null ? "" : JSON.stringify(node.preview);
 }
 
 /* ---------- tree (D16 lazy render, plus checkboxes and unpack toggles) ---------- */
@@ -2969,21 +3359,23 @@ function buildNode(node, parent, path, depth){
     box.checked = st === "all";
     box.indeterminate = st === "some";
     box.addEventListener("click", function(e){ e.stopPropagation(); });
-    box.addEventListener("change", function(){ selectPaths(leavesOf(node, path), box.checked); });
+    box.addEventListener("change", function(){ tickNode(node, path, box.checked); });
   } else box.disabled = true;
   row.appendChild(box);
 
   const name = el("span", "tname" + (node.key === "{*}" ? " map" : node.key === "[]" ? " arr" : ""), node.key);
   row.appendChild(name);
 
-  for(const t of typeList(node)) row.appendChild(el("span", "badge", t));
-  for(const e of node.inferred){
-    row.appendChild(el("span", "badge " + (e[0] === "json?" ? "warn" : "inf"),
-      e[0] === "json?" ? "→ embedded JSON ×" + num(e[1]) : "→ " + e[0] + " ×" + num(e[1])));
-  }
+  row.appendChild(typeCell(node));
 
-  const det = el("span", "tdet", detailText(node));
-  row.appendChild(det);
+  const size = el("span", "tsize", sizeText(node));
+  size.title = size.textContent;
+  row.appendChild(size);
+
+  const ex = el("span", "tex", exampleText(node));
+  ex.title = ex.textContent;
+  ex.setAttribute("dir", "auto");
+  row.appendChild(ex);
 
   // A synthetic node's `seen` counts elements or map values, not occurrences, so
   // seen/parent.seen is a mean rather than a presence.
@@ -3008,6 +3400,7 @@ function buildNode(node, parent, path, depth){
   wrap.appendChild(row);
 
   if(isEmbedded(node)) wrap.appendChild(unpackRow(node, path));
+  if(canPackage(node)) wrap.appendChild(packageRow(node, path));
 
   const kids = el("div", "kids");
   wrap.appendChild(kids);
@@ -3035,6 +3428,59 @@ function buildNode(node, parent, path, depth){
   row.style.cursor = "pointer";
   paint();
   return wrap;
+}
+
+// W22. A fixed-width cell holding a variable run of badges, so it overflows by
+// design. Inferred chips outrank a third literal type: "→ embedded JSON" is what
+// gates the parse-as-JSON toggle, where "float ×3" is only trivia.
+const TYPE_BADGES = 2;
+
+function typeCell(node){
+  const cell = el("span", "ttype");
+  const items = [];
+  for(const t of typeBadges(node)) items.push({cls:"badge", text:t});
+  for(const e of node.inferred){
+    items.push({cls:"badge " + (e[0] === "json?" ? "warn" : "inf"), pri:true,
+      text: e[0] === "json?" ? "→ embedded JSON ×" + num(e[1]) : "→ " + e[0] + " ×" + num(e[1])});
+  }
+  const shown = items.filter(function(i){ return i.pri; }).concat(items.filter(function(i){ return !i.pri; }));
+  const keep = shown.slice(0, TYPE_BADGES), rest = shown.slice(TYPE_BADGES);
+  // Restore source order among the kept ones so types still read before inferences.
+  for(const i of items) if(keep.indexOf(i) >= 0) cell.appendChild(el("span", i.cls, i.text));
+  if(rest.length){
+    const more = el("span", "badge more", "+" + rest.length);
+    more.title = rest.map(function(i){ return i.text; }).join("\n");
+    cell.appendChild(more);
+  }
+  cell.title = items.map(function(i){ return i.text; }).join("  ·  ");
+  return cell;
+}
+
+function packageRow(node, path){
+  const bar = el("div", "unpack");
+  const host = packagedBy(path);
+  const lab = el("label", "chk");
+  const cb = el("input");
+  cb.type = "checkbox";
+  cb.checked = state.whole.has(path);
+  cb.disabled = host !== null || state.provisional;
+  lab.appendChild(cb);
+  lab.appendChild(el("span", null, "as one column"));
+  bar.appendChild(lab);
+
+  if(host !== null){
+    bar.appendChild(el("span", null, "already inside " + host));
+  } else if(state.whole.has(path)){
+    let kept = 0;
+    for(const l of leavesOf(node, path)) if(state.selected.has(l)) kept++;
+    bar.appendChild(el("span", null, kept ? num(kept) + " of " +
+      num(leavesOf(node, path).length) + " paths kept" : "everything deselected — emits {}"));
+  }
+
+  cb.addEventListener("click", function(e){ e.stopPropagation(); });
+  cb.addEventListener("change", function(){ setWhole(node, path, cb.checked); });
+  bar.addEventListener("click", function(e){ e.stopPropagation(); });
+  return bar;
 }
 
 function unpackRow(node, path){
@@ -3124,8 +3570,8 @@ function renderFlat(){
   const table = el("table", "table");
   const thead = el("thead");
   const hr = el("tr");
-  ["", "path", "types", "present", "of parent", "example"].forEach(function(h, i){
-    const th = el("th", i === 3 || i === 4 ? "num" : null, h);
+  ["", "path", "type", "size", "present", "of parent", "example"].forEach(function(h, i){
+    const th = el("th", i === 4 || i === 5 ? "num" : null, h);
     hr.appendChild(th);
   });
   thead.appendChild(hr);
@@ -3143,14 +3589,17 @@ function renderFlat(){
       const st = selState(r.node, r.path);
       box.checked = st === "all";
       box.indeterminate = st === "some";
-      box.addEventListener("change", function(){ selectPaths(leavesOf(r.node, r.path), box.checked); });
+      box.addEventListener("change", function(){ tickNode(r.node, r.path, box.checked); });
       tdc.appendChild(box);
     }
     tr.appendChild(tdc);
     const tdp = el("td", "path", r.path);
     tdp.title = r.path;
     tr.appendChild(tdp);
-    tr.appendChild(el("td", null, typeList(r.node).join(", ")));
+    tr.appendChild(el("td", null, typeBadges(r.node).join(", ")));
+    const tsz = el("td", null, sizeText(r.node));
+    tsz.title = tsz.textContent;
+    tr.appendChild(tsz);
     tr.appendChild(el("td", "num", num(r.node.seen)));
     tr.appendChild(el("td", "num", r.parent ? num(r.parent.seen) : ""));
     const ex = el("td", "cell", state.redact || r.node.preview === null ? "" : r.node.preview.replace(/\s+/g, " "));
@@ -3418,6 +3867,7 @@ function buildOpts(){
   o.selected = selectedInOrder();
   o.unpacked = Array.from(state.unpacked);
   o.pretty = Array.from(state.pretty);
+  o.whole = Array.from(state.whole);
   o.splitCap = intOr("splitCap", 30000);
   o.splitToken = $("splitToken").value;
   o.splitStyle = $("splitStyle").value;
@@ -3781,6 +4231,7 @@ function recipe(){
   return {
     tool:"data-workbench", version:1,
     selected:selectedInOrder(), unpacked:Array.from(state.unpacked), pretty:Array.from(state.pretty),
+    whole:Array.from(state.whole),
     explode:state.opts.explode, flatten:state.opts.flatten, split:state.opts.split,
     splitCap:intOr("splitCap", 30000), splitStyle:$("splitStyle").value, splitToken:$("splitToken").value,
     lineBreaks:state.opts.lineBreaks, sortBy:state.opts.sortBy, sortDir:state.opts.sortDir,
@@ -3837,6 +4288,9 @@ function reconcileRecipe(r, name){
     state.selectionOrder = matched.slice();
     state.unpacked = new Set();
     state.pretty = new Set((r.pretty || []).filter(function(p){ return all.has(p); }));
+    // A packaged container only packages while it is itself selected (W21), so a
+    // recipe naming one whose path this file lacks reconciles away with the rest.
+    state.whole = new Set((r.whole || []).filter(function(p){ return all.has(p); }));
     state.redact = !!r.redact;
     $("redact").checked = state.redact;
     state.opts.explode = all.has(r.explode) ? r.explode : "";
@@ -3875,6 +4329,7 @@ function paintTabs(){
   $("statsView").classList.toggle("hidden", state.tab !== "stats");
   $("treeTools").classList.toggle("hidden", state.tab === "flat");
   $("flatTools").classList.toggle("hidden", state.tab !== "flat");
+  $("treeHead").classList.toggle("hidden", state.tab !== "tree");
 }
 function paintSideTabs(){
   $("tabPreview").setAttribute("aria-selected", state.sideTab === "preview");

@@ -2811,6 +2811,7 @@ const WHOLE_CAP  = 200 * 1024 * 1024;
 const LINE_WARN  = 250 * 1024 * 1024;
 const EXPAND_WARN = 5000;
 const PREVIEW_ROWS = 200;
+const PREVIEW_COLS = 60;   // columns *rendered* as a table; the rest are named below it
 const CELL_CAP = 200;
 const RESIDUE_INLINE = 50;
 
@@ -2837,7 +2838,10 @@ function esc(s){
     return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];
   });
 }
-function num(n){ return (n === null || n === undefined) ? "" : Number(n).toLocaleString(); }
+// One formatter, reused: num() runs several times per rendered row, and building
+// a fresh Intl formatter per call is the expensive half of toLocaleString.
+const NUMFMT = new Intl.NumberFormat();
+function num(n){ return (n === null || n === undefined) ? "" : NUMFMT.format(Number(n)); }
 function fmtBytes(n){
   const u = ["B","KB","MB","GB"];
   let i = 0;
@@ -2878,12 +2882,36 @@ paintTheme();
 $("themeBtn").addEventListener("click", function(){ theme = theme === "dark" ? "light" : "dark"; paintTheme(); });
 /* ---------- help and changelog (W23) ---------- */
 
-const VERSION = "1.2.2";
+const VERSION = "1.2.3";
 
 // W1 forbids runtime network requests and `file://` blocks fetch regardless, so the
 // changelog ships inside the page. It is the *text of* changelog.md, verbatim — the
 // two are kept in step by paste, which is what stops the in-app copy drifting.
 const CHANGELOG_MD = `
+## v1.2.3
+
+Ticking a checkbox no longer stalls the page.
+
+- **A selection change repaints rows in place instead of rebuilding the tree.** Every
+  tick tore down and re-created every visible row — on a 65 MB file with the tree
+  expanded, ~1,000 rows per click. It also detached the checkbox you had just clicked,
+  so a fast second click landed on an orphaned element and did nothing. Rows now update
+  their own checkbox and state chips; the DOM survives the click. Measured on a 65 MB
+  JSONL with 1,032 rows built: **71 ms → 3 ms** per tick in the tree, 52 ms → 4 ms in
+  Flat, and 110 ms → 6 ms for *Clear selection*.
+- **A path's checkbox state comes from one roll-up over the model.** Each row used to
+  walk its entire subtree to decide checked / indeterminate, so painting a tree was
+  quadratic in subtree size and every tick paid it again.
+- **Unticking a container is no longer quadratic** in the selection-order list, which
+  was scanned and spliced once per path removed.
+- **The sort dropdown and the row count moved behind the preview's debounce.** Both are
+  rebuilt from the selection — the row count runs a full export plan — and both were
+  running synchronously on the click.
+- **The preview grid renders at most 60 columns** (W25). 200 rows against 500 ticked
+  paths is 100,000 cells. The cap is on the grid alone: every column is still written on
+  export, still appears in each row's literal output line and in the CSV header line,
+  and the clipped column names are listed beneath the table.
+
 ## v1.2.2
 
 Two export fixes.
@@ -3581,26 +3609,61 @@ function packagedBy(path){
   return host;
 }
 
-function selState(node, path){
+/* --- W25. Every rendered row asks for its own state, and the answer used to cost
+   one leavesOf() over that row's whole subtree — so painting a tree was quadratic
+   in subtree size and a tick paid it again. The same answer for every path comes
+   out of one post-order walk, cached until the selection moves.
+   The semantics are leavesOf's exactly: `{*}` counts as its own single leaf and its
+   children are indexed but not tallied into it, `[]` contributes a leaf nobody can
+   tick, and `whole` overrides only the node it is set on — never the ancestors
+   rolling that node up. */
+
+let selCache = null;
+
+function invalidateSel(){ selCache = null; }
+
+function selStates(){
+  if(!selCache){
+    selCache = new Map();
+    if(state.model) rollup(state.model.root, "", selCache);
+  }
+  return selCache;
+}
+
+function rollup(node, path, out){
+  let n = 0, on = 0;
+  if(node.key === "{*}"){
+    for(const e of node.children) rollup(e[1], DW.childPath(path, e[0]), out);
+    n = 1; on = state.selected.has(path) ? 1 : 0;
+  } else if(node.children.size === 0){
+    if(path !== ""){ n = 1; on = state.selected.has(path) ? 1 : 0; }
+  } else {
+    for(const e of node.children){
+      const c = rollup(e[1], DW.childPath(path, e[0]), out);
+      n += c.n; on += c.on;
+    }
+  }
   // In one-column mode the checkbox stops being a roll-up: it *is* the column's
   // on/off switch, which is the only thing that makes an empty {} removable (W21).
-  if(state.whole.has(path)) return state.selected.has(path) ? "all" : "none";
-  const leaves = leavesOf(node, path);
-  if(!leaves.length) return "none";
-  let on = 0;
-  for(const l of leaves) if(state.selected.has(l)) on++;
-  return on === 0 ? "none" : on === leaves.length ? "all" : "some";
+  out.set(path, state.whole.has(path) ? (state.selected.has(path) ? "all" : "none")
+              : (n === 0 || on === 0) ? "none" : on === n ? "all" : "some");
+  return {n:n, on:on};
+}
+
+function selState(path){
+  const st = selStates().get(path);
+  return st === undefined ? "none" : st;
 }
 
 function selectPaths(paths, on){
-  for(const p of paths){
-    if(on){
-      if(!state.selected.has(p)){ state.selected.add(p); state.selectionOrder.push(p); }
-    } else {
-      state.selected.delete(p);
-      const i = state.selectionOrder.indexOf(p);
-      if(i >= 0) state.selectionOrder.splice(i, 1);
-    }
+  if(on){
+    for(const p of paths) if(!state.selected.has(p)){ state.selected.add(p); state.selectionOrder.push(p); }
+  } else {
+    const drop = new Set(paths);
+    for(const p of drop) state.selected.delete(p);
+    // One filter rather than an indexOf + splice per path: unticking a container
+    // with a few thousand leaves beneath it was quadratic in the order list.
+    state.selectionOrder = state.selectionOrder.filter(function(p){ return !drop.has(p); });
   }
   afterSelectionChange();
 }
@@ -3636,11 +3699,15 @@ function setWhole(node, path, on){
   }
 }
 
+// A selection change alters checkboxes and state chips and nothing else about a
+// row, so it repaints in place. Only a *structural* change — a new model, a new
+// sort, redact — goes through render() and rebuilds the DOM. The sort dropdown
+// and the row count are rebuilt from the selection too, so they ride the
+// preview's debounce rather than the click.
 function afterSelectionChange(){
-  render();
-  renderSortOptions();
+  invalidateSel();
+  repaintSelection();
   renderPreview();
-  updateSelCount();
 }
 
 function updateSelCount(){
@@ -3722,6 +3789,11 @@ function exampleText(node){
 
 /* ---------- tree (D16 lazy render, plus checkboxes and unpack toggles) ---------- */
 
+// W25. Every built row registers how to repaint itself against the current
+// selection. Tree and Flat share the index — only one of them is ever rendered —
+// and whichever renders clears it first.
+const rowRepaint = new Map();
+
 function render(){
   updateSelCount();
   renderPrettyNote();
@@ -3730,13 +3802,26 @@ function render(){
   else renderStats();
 }
 
+// The selection-only path: no DOM is torn down. Rebuilding a few thousand rows
+// per click is what made ticking a checkbox stall.
+function repaintSelection(){
+  updateSelCount();
+  renderPrettyNote();
+  if(state.tab === "stats") return;            // stats reads nothing from the selection
+  for(const e of rowRepaint) e[1]();
+}
+
 function renderTree(){
   const host = $("treeView");
   const keepScroll = $("reportBody").scrollTop;
+  invalidateSel();
+  rowRepaint.clear();
   host.innerHTML = "";
+  const frag = document.createDocumentFragment();
   for(const e of ordered(state.model.root)){
-    host.appendChild(buildNode(e[1], state.model.root, DW.childPath("", e[0]), 1));
+    frag.appendChild(buildNode(e[1], state.model.root, DW.childPath("", e[0]), 1));
   }
+  host.appendChild(frag);
   $("reportBody").scrollTop = keepScroll;
 }
 
@@ -3756,7 +3841,7 @@ function buildNode(node, parent, path, depth){
   box.type = "checkbox";
   box.setAttribute("aria-label", "Select " + path);
   if(node.key !== "[]"){
-    const st = selState(node, path);
+    const st = selState(path);
     box.checked = st === "all";
     box.indeterminate = st === "some";
     box.addEventListener("click", function(e){ e.stopPropagation(); });
@@ -3767,7 +3852,8 @@ function buildNode(node, parent, path, depth){
   const name = el("span", "tname" + (node.key === "{*}" ? " map" : node.key === "[]" ? " arr" : ""), node.key);
   row.appendChild(name);
 
-  row.appendChild(typeCell(node, path));
+  let type = typeCell(node, path);
+  row.appendChild(type);
 
   const size = el("span", "tsize", sizeText(node));
   size.title = size.textContent;
@@ -3824,6 +3910,25 @@ function buildNode(node, parent, path, depth){
   // Clicking the row flips the right pane from Preview to Path detail (W11).
   row.addEventListener("click", function(){ openDetail(path); });
   row.style.cursor = "pointer";
+
+  // The chips only move when *handling* changes, which is rare; comparing them
+  // keeps the common case — a tick — down to two property writes per row.
+  let chips = stateChips(path).join("");
+  rowRepaint.set(path, function(){
+    if(node.key !== "[]"){
+      const st = selState(path);
+      box.checked = st === "all";
+      box.indeterminate = st === "some";
+    }
+    const now = stateChips(path).join("");
+    if(now !== chips){
+      chips = now;
+      const next = typeCell(node, path);
+      row.replaceChild(next, type);
+      type = next;
+    }
+  });
+
   paint();
   return wrap;
 }
@@ -4024,6 +4129,8 @@ function renderFlat(){
   $("flatCount").textContent = num(shown.length) + " of " + num(rows.length);
 
   const host = $("flatView");
+  invalidateSel();
+  rowRepaint.clear();
   host.innerHTML = "";
   const table = el("table", "table");
   const thead = el("thead");
@@ -4039,12 +4146,13 @@ function renderFlat(){
   for(const r of shown){
     const tr = el("tr");
     const tdc = el("td");
+    let box = null;
     if(r.node.key !== "[]"){
-      const box = el("input");
+      box = el("input");
       box.type = "checkbox";
       box.className = "box";
       box.setAttribute("aria-label", "Select " + r.path);
-      const st = selState(r.node, r.path);
+      const st = selState(r.path);
       box.checked = st === "all";
       box.indeterminate = st === "some";
       box.addEventListener("change", function(){ tickNode(r.node, r.path, box.checked); });
@@ -4054,7 +4162,23 @@ function renderFlat(){
     const tdp = el("td", "path", r.path);
     tdp.title = r.path;
     tr.appendChild(tdp);
-    tr.appendChild(el("td", null, typeBadges(r.node).concat(stateChips(r.path)).join(", ")));
+    let chips = stateChips(r.path);
+    const tdt = el("td", null, typeBadges(r.node).concat(chips).join(", "));
+    tr.appendChild(tdt);
+    // W25. Same in-place repaint the tree does — the flat table is one row per
+    // path, so rebuilding it on every tick was the worse of the two.
+    rowRepaint.set(r.path, function(){
+      if(box){
+        const st = selState(r.path);
+        box.checked = st === "all";
+        box.indeterminate = st === "some";
+      }
+      const now = stateChips(r.path);
+      if(now.join("") !== chips.join("")){
+        chips = now;
+        tdt.textContent = typeBadges(r.node).concat(chips).join(", ");
+      }
+    });
     const tsz = el("td", null, sizeText(r.node));
     tsz.title = tsz.textContent;
     tr.appendChild(tsz);
@@ -4074,6 +4198,7 @@ function renderFlat(){
 
 function renderStats(){
   const host = $("statsView");
+  rowRepaint.clear();            // the rows those closures held are gone from the DOM
   host.innerHTML = "";
   const rows = flatten(state.model);
 
@@ -4339,10 +4464,15 @@ let previewTimer = null;
 function renderPreview(){
   clearTimeout(previewTimer);
   previewTimer = setTimeout(doRenderPreview, 180);
-  updateRowCount();
 }
 
 function doRenderPreview(){
+  // Both of these are rebuilt from the selection — the sort dropdown is one
+  // option per selected path, and the row count runs a full plan() — so they sit
+  // behind the debounce rather than on the click that changed the selection.
+  renderSortOptions();
+  updateRowCount();
+
   const host = $("previewView");
   host.innerHTML = "";
   if(!state.model){ host.appendChild(emptyBlock("Nothing scanned yet", "Load a file and press Scan.")); return; }
@@ -4363,14 +4493,21 @@ function doRenderPreview(){
     host.appendChild(emptyBlock("Preview failed", String(e.message || e)));
     return;
   }
-  $("previewMeta").textContent = num(pv.rows.length) + " of first " + num(state.slice.length) + " records";
+  // The table is rows × columns of DOM, so a wide selection is what makes it
+  // expensive — 200 rows against 500 ticked paths is 100,000 cells. The pipeline
+  // still runs over every column: the literal output line under each row, the CSV
+  // header line and the export are all unaffected, only the grid is cut.
+  const cols = pv.columns.length > PREVIEW_COLS ? pv.columns.slice(0, PREVIEW_COLS) : pv.columns;
+  const clipped = pv.columns.length - cols.length;
+  $("previewMeta").textContent = num(pv.rows.length) + " of first " + num(state.slice.length) + " records" +
+    (clipped ? " · showing " + num(cols.length) + " of " + num(pv.columns.length) + " columns" : "");
 
   const wrap = el("div", "table-wrap");
   const table = el("table", "table");
   const thead = el("thead");
   const hr = el("tr");
   hr.appendChild(el("th", null, ""));
-  for(const c of pv.columns){
+  for(const c of cols){
     const th = el("th", null, c);
     th.title = c;
     hr.appendChild(th);
@@ -4381,7 +4518,7 @@ function doRenderPreview(){
   for(let i = 0; i < pv.rows.length; i++){
     const tr = el("tr");
     tr.appendChild(el("td", "num", String(i + 1)));
-    for(const c of pv.columns){
+    for(const c of cols){
       const raw = pv.rows[i][c];
       const s = raw === undefined ? "" : typeof raw === "string" ? raw : JSON.stringify(raw);
       const td = el("td", "cell", s.length > CELL_CAP ? s.slice(0, CELL_CAP) + "…" : s);
@@ -4394,7 +4531,7 @@ function doRenderPreview(){
     // would render all four correct-looking, so the literal line is one click away.
     const rawTr = el("tr", "raw hidden");
     const rawTd = el("td");
-    rawTd.colSpan = pv.columns.length + 1;
+    rawTd.colSpan = cols.length + 1;
     rawTd.textContent = pv.lines[i];
     rawTd.setAttribute("dir", "ltr");
     rawTr.appendChild(rawTd);
@@ -4407,6 +4544,14 @@ function doRenderPreview(){
   wrap.appendChild(table);
   host.appendChild(wrap);
 
+  if(clipped){
+    const s = el("div", "section");
+    s.appendChild(el("h3", null, "Columns not shown in the grid"));
+    s.appendChild(el("div", "field-hint", num(clipped) + " further column" + (clipped === 1 ? "" : "s") +
+      " are written on export and appear in every literal output line above."));
+    s.appendChild(el("div", "val", pv.columns.slice(cols.length).join("\n")));
+    host.appendChild(s);
+  }
   if(pv.header !== null){
     const s = el("div", "section");
     s.appendChild(el("h3", null, "CSV header line"));

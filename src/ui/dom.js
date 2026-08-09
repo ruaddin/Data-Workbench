@@ -5,7 +5,10 @@ function esc(s){
     return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];
   });
 }
-function num(n){ return (n === null || n === undefined) ? "" : Number(n).toLocaleString(); }
+// One formatter, reused: num() runs several times per rendered row, and building
+// a fresh Intl formatter per call is the expensive half of toLocaleString.
+const NUMFMT = new Intl.NumberFormat();
+function num(n){ return (n === null || n === undefined) ? "" : NUMFMT.format(Number(n)); }
 function fmtBytes(n){
   const u = ["B","KB","MB","GB"];
   let i = 0;

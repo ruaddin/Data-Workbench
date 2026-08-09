@@ -1,11 +1,35 @@
 /* ---------- help and changelog (W23) ---------- */
 
-const VERSION = "1.2.2";
+const VERSION = "1.2.3";
 
 // W1 forbids runtime network requests and `file://` blocks fetch regardless, so the
 // changelog ships inside the page. It is the *text of* changelog.md, verbatim — the
 // two are kept in step by paste, which is what stops the in-app copy drifting.
 const CHANGELOG_MD = `
+## v1.2.3
+
+Ticking a checkbox no longer stalls the page.
+
+- **A selection change repaints rows in place instead of rebuilding the tree.** Every
+  tick tore down and re-created every visible row — on a 65 MB file with the tree
+  expanded, ~1,000 rows per click. It also detached the checkbox you had just clicked,
+  so a fast second click landed on an orphaned element and did nothing. Rows now update
+  their own checkbox and state chips; the DOM survives the click. Measured on a 65 MB
+  JSONL with 1,032 rows built: **71 ms → 3 ms** per tick in the tree, 52 ms → 4 ms in
+  Flat, and 110 ms → 6 ms for *Clear selection*.
+- **A path's checkbox state comes from one roll-up over the model.** Each row used to
+  walk its entire subtree to decide checked / indeterminate, so painting a tree was
+  quadratic in subtree size and every tick paid it again.
+- **Unticking a container is no longer quadratic** in the selection-order list, which
+  was scanned and spliced once per path removed.
+- **The sort dropdown and the row count moved behind the preview's debounce.** Both are
+  rebuilt from the selection — the row count runs a full export plan — and both were
+  running synchronously on the click.
+- **The preview grid renders at most 60 columns** (W25). 200 rows against 500 ticked
+  paths is 100,000 cells. The cap is on the grid alone: every column is still written on
+  export, still appears in each row's literal output line and in the CSV header line,
+  and the clipped column names are listed beneath the table.
+
 ## v1.2.2
 
 Two export fixes.

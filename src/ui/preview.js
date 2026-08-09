@@ -16,10 +16,15 @@ let previewTimer = null;
 function renderPreview(){
   clearTimeout(previewTimer);
   previewTimer = setTimeout(doRenderPreview, 180);
-  updateRowCount();
 }
 
 function doRenderPreview(){
+  // Both of these are rebuilt from the selection — the sort dropdown is one
+  // option per selected path, and the row count runs a full plan() — so they sit
+  // behind the debounce rather than on the click that changed the selection.
+  renderSortOptions();
+  updateRowCount();
+
   const host = $("previewView");
   host.innerHTML = "";
   if(!state.model){ host.appendChild(emptyBlock("Nothing scanned yet", "Load a file and press Scan.")); return; }
@@ -40,14 +45,21 @@ function doRenderPreview(){
     host.appendChild(emptyBlock("Preview failed", String(e.message || e)));
     return;
   }
-  $("previewMeta").textContent = num(pv.rows.length) + " of first " + num(state.slice.length) + " records";
+  // The table is rows × columns of DOM, so a wide selection is what makes it
+  // expensive — 200 rows against 500 ticked paths is 100,000 cells. The pipeline
+  // still runs over every column: the literal output line under each row, the CSV
+  // header line and the export are all unaffected, only the grid is cut.
+  const cols = pv.columns.length > PREVIEW_COLS ? pv.columns.slice(0, PREVIEW_COLS) : pv.columns;
+  const clipped = pv.columns.length - cols.length;
+  $("previewMeta").textContent = num(pv.rows.length) + " of first " + num(state.slice.length) + " records" +
+    (clipped ? " · showing " + num(cols.length) + " of " + num(pv.columns.length) + " columns" : "");
 
   const wrap = el("div", "table-wrap");
   const table = el("table", "table");
   const thead = el("thead");
   const hr = el("tr");
   hr.appendChild(el("th", null, ""));
-  for(const c of pv.columns){
+  for(const c of cols){
     const th = el("th", null, c);
     th.title = c;
     hr.appendChild(th);
@@ -58,7 +70,7 @@ function doRenderPreview(){
   for(let i = 0; i < pv.rows.length; i++){
     const tr = el("tr");
     tr.appendChild(el("td", "num", String(i + 1)));
-    for(const c of pv.columns){
+    for(const c of cols){
       const raw = pv.rows[i][c];
       const s = raw === undefined ? "" : typeof raw === "string" ? raw : JSON.stringify(raw);
       const td = el("td", "cell", s.length > CELL_CAP ? s.slice(0, CELL_CAP) + "…" : s);
@@ -71,7 +83,7 @@ function doRenderPreview(){
     // would render all four correct-looking, so the literal line is one click away.
     const rawTr = el("tr", "raw hidden");
     const rawTd = el("td");
-    rawTd.colSpan = pv.columns.length + 1;
+    rawTd.colSpan = cols.length + 1;
     rawTd.textContent = pv.lines[i];
     rawTd.setAttribute("dir", "ltr");
     rawTr.appendChild(rawTd);
@@ -84,6 +96,14 @@ function doRenderPreview(){
   wrap.appendChild(table);
   host.appendChild(wrap);
 
+  if(clipped){
+    const s = el("div", "section");
+    s.appendChild(el("h3", null, "Columns not shown in the grid"));
+    s.appendChild(el("div", "field-hint", num(clipped) + " further column" + (clipped === 1 ? "" : "s") +
+      " are written on export and appear in every literal output line above."));
+    s.appendChild(el("div", "val", pv.columns.slice(cols.length).join("\n")));
+    host.appendChild(s);
+  }
   if(pv.header !== null){
     const s = el("div", "section");
     s.appendChild(el("h3", null, "CSV header line"));

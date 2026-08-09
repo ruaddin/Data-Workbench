@@ -16,6 +16,8 @@ function renderFlat(){
   $("flatCount").textContent = num(shown.length) + " of " + num(rows.length);
 
   const host = $("flatView");
+  invalidateSel();
+  rowRepaint.clear();
   host.innerHTML = "";
   const table = el("table", "table");
   const thead = el("thead");
@@ -31,12 +33,13 @@ function renderFlat(){
   for(const r of shown){
     const tr = el("tr");
     const tdc = el("td");
+    let box = null;
     if(r.node.key !== "[]"){
-      const box = el("input");
+      box = el("input");
       box.type = "checkbox";
       box.className = "box";
       box.setAttribute("aria-label", "Select " + r.path);
-      const st = selState(r.node, r.path);
+      const st = selState(r.path);
       box.checked = st === "all";
       box.indeterminate = st === "some";
       box.addEventListener("change", function(){ tickNode(r.node, r.path, box.checked); });
@@ -46,7 +49,23 @@ function renderFlat(){
     const tdp = el("td", "path", r.path);
     tdp.title = r.path;
     tr.appendChild(tdp);
-    tr.appendChild(el("td", null, typeBadges(r.node).concat(stateChips(r.path)).join(", ")));
+    let chips = stateChips(r.path);
+    const tdt = el("td", null, typeBadges(r.node).concat(chips).join(", "));
+    tr.appendChild(tdt);
+    // W25. Same in-place repaint the tree does — the flat table is one row per
+    // path, so rebuilding it on every tick was the worse of the two.
+    rowRepaint.set(r.path, function(){
+      if(box){
+        const st = selState(r.path);
+        box.checked = st === "all";
+        box.indeterminate = st === "some";
+      }
+      const now = stateChips(r.path);
+      if(now.join("") !== chips.join("")){
+        chips = now;
+        tdt.textContent = typeBadges(r.node).concat(chips).join(", ");
+      }
+    });
     const tsz = el("td", null, sizeText(r.node));
     tsz.title = tsz.textContent;
     tr.appendChild(tsz);
@@ -66,6 +85,7 @@ function renderFlat(){
 
 function renderStats(){
   const host = $("statsView");
+  rowRepaint.clear();            // the rows those closures held are gone from the DOM
   host.innerHTML = "";
   const rows = flatten(state.model);
 

@@ -27,26 +27,61 @@ function packagedBy(path){
   return host;
 }
 
-function selState(node, path){
+/* --- W25. Every rendered row asks for its own state, and the answer used to cost
+   one leavesOf() over that row's whole subtree — so painting a tree was quadratic
+   in subtree size and a tick paid it again. The same answer for every path comes
+   out of one post-order walk, cached until the selection moves.
+   The semantics are leavesOf's exactly: `{*}` counts as its own single leaf and its
+   children are indexed but not tallied into it, `[]` contributes a leaf nobody can
+   tick, and `whole` overrides only the node it is set on — never the ancestors
+   rolling that node up. */
+
+let selCache = null;
+
+function invalidateSel(){ selCache = null; }
+
+function selStates(){
+  if(!selCache){
+    selCache = new Map();
+    if(state.model) rollup(state.model.root, "", selCache);
+  }
+  return selCache;
+}
+
+function rollup(node, path, out){
+  let n = 0, on = 0;
+  if(node.key === "{*}"){
+    for(const e of node.children) rollup(e[1], DW.childPath(path, e[0]), out);
+    n = 1; on = state.selected.has(path) ? 1 : 0;
+  } else if(node.children.size === 0){
+    if(path !== ""){ n = 1; on = state.selected.has(path) ? 1 : 0; }
+  } else {
+    for(const e of node.children){
+      const c = rollup(e[1], DW.childPath(path, e[0]), out);
+      n += c.n; on += c.on;
+    }
+  }
   // In one-column mode the checkbox stops being a roll-up: it *is* the column's
   // on/off switch, which is the only thing that makes an empty {} removable (W21).
-  if(state.whole.has(path)) return state.selected.has(path) ? "all" : "none";
-  const leaves = leavesOf(node, path);
-  if(!leaves.length) return "none";
-  let on = 0;
-  for(const l of leaves) if(state.selected.has(l)) on++;
-  return on === 0 ? "none" : on === leaves.length ? "all" : "some";
+  out.set(path, state.whole.has(path) ? (state.selected.has(path) ? "all" : "none")
+              : (n === 0 || on === 0) ? "none" : on === n ? "all" : "some");
+  return {n:n, on:on};
+}
+
+function selState(path){
+  const st = selStates().get(path);
+  return st === undefined ? "none" : st;
 }
 
 function selectPaths(paths, on){
-  for(const p of paths){
-    if(on){
-      if(!state.selected.has(p)){ state.selected.add(p); state.selectionOrder.push(p); }
-    } else {
-      state.selected.delete(p);
-      const i = state.selectionOrder.indexOf(p);
-      if(i >= 0) state.selectionOrder.splice(i, 1);
-    }
+  if(on){
+    for(const p of paths) if(!state.selected.has(p)){ state.selected.add(p); state.selectionOrder.push(p); }
+  } else {
+    const drop = new Set(paths);
+    for(const p of drop) state.selected.delete(p);
+    // One filter rather than an indexOf + splice per path: unticking a container
+    // with a few thousand leaves beneath it was quadratic in the order list.
+    state.selectionOrder = state.selectionOrder.filter(function(p){ return !drop.has(p); });
   }
   afterSelectionChange();
 }
@@ -82,11 +117,15 @@ function setWhole(node, path, on){
   }
 }
 
+// A selection change alters checkboxes and state chips and nothing else about a
+// row, so it repaints in place. Only a *structural* change — a new model, a new
+// sort, redact — goes through render() and rebuilds the DOM. The sort dropdown
+// and the row count are rebuilt from the selection too, so they ride the
+// preview's debounce rather than the click.
 function afterSelectionChange(){
-  render();
-  renderSortOptions();
+  invalidateSel();
+  repaintSelection();
   renderPreview();
-  updateSelCount();
 }
 
 function updateSelCount(){

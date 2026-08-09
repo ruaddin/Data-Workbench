@@ -33,6 +33,7 @@ const WHOLE_CAP  = 200 * 1024 * 1024;
 const LINE_WARN  = 250 * 1024 * 1024;
 const EXPAND_WARN = 5000;
 const PREVIEW_ROWS = 200;
+const PREVIEW_COLS = 60;   // columns *rendered* as a table; the rest are named below it
 const CELL_CAP = 200;
 const RESIDUE_INLINE = 50;
 

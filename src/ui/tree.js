@@ -1,5 +1,10 @@
 /* ---------- tree (D16 lazy render, plus checkboxes and unpack toggles) ---------- */
 
+// W25. Every built row registers how to repaint itself against the current
+// selection. Tree and Flat share the index — only one of them is ever rendered —
+// and whichever renders clears it first.
+const rowRepaint = new Map();
+
 function render(){
   updateSelCount();
   renderPrettyNote();
@@ -8,13 +13,26 @@ function render(){
   else renderStats();
 }
 
+// The selection-only path: no DOM is torn down. Rebuilding a few thousand rows
+// per click is what made ticking a checkbox stall.
+function repaintSelection(){
+  updateSelCount();
+  renderPrettyNote();
+  if(state.tab === "stats") return;            // stats reads nothing from the selection
+  for(const e of rowRepaint) e[1]();
+}
+
 function renderTree(){
   const host = $("treeView");
   const keepScroll = $("reportBody").scrollTop;
+  invalidateSel();
+  rowRepaint.clear();
   host.innerHTML = "";
+  const frag = document.createDocumentFragment();
   for(const e of ordered(state.model.root)){
-    host.appendChild(buildNode(e[1], state.model.root, DW.childPath("", e[0]), 1));
+    frag.appendChild(buildNode(e[1], state.model.root, DW.childPath("", e[0]), 1));
   }
+  host.appendChild(frag);
   $("reportBody").scrollTop = keepScroll;
 }
 
@@ -34,7 +52,7 @@ function buildNode(node, parent, path, depth){
   box.type = "checkbox";
   box.setAttribute("aria-label", "Select " + path);
   if(node.key !== "[]"){
-    const st = selState(node, path);
+    const st = selState(path);
     box.checked = st === "all";
     box.indeterminate = st === "some";
     box.addEventListener("click", function(e){ e.stopPropagation(); });
@@ -45,7 +63,8 @@ function buildNode(node, parent, path, depth){
   const name = el("span", "tname" + (node.key === "{*}" ? " map" : node.key === "[]" ? " arr" : ""), node.key);
   row.appendChild(name);
 
-  row.appendChild(typeCell(node, path));
+  let type = typeCell(node, path);
+  row.appendChild(type);
 
   const size = el("span", "tsize", sizeText(node));
   size.title = size.textContent;
@@ -102,6 +121,25 @@ function buildNode(node, parent, path, depth){
   // Clicking the row flips the right pane from Preview to Path detail (W11).
   row.addEventListener("click", function(){ openDetail(path); });
   row.style.cursor = "pointer";
+
+  // The chips only move when *handling* changes, which is rare; comparing them
+  // keeps the common case — a tick — down to two property writes per row.
+  let chips = stateChips(path).join("");
+  rowRepaint.set(path, function(){
+    if(node.key !== "[]"){
+      const st = selState(path);
+      box.checked = st === "all";
+      box.indeterminate = st === "some";
+    }
+    const now = stateChips(path).join("");
+    if(now !== chips){
+      chips = now;
+      const next = typeCell(node, path);
+      row.replaceChild(next, type);
+      type = next;
+    }
+  });
+
   paint();
   return wrap;
 }

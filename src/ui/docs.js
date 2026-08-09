@@ -1,0 +1,236 @@
+/* ---------- help and changelog (W23) ---------- */
+
+const VERSION = "1.2.2";
+
+// W1 forbids runtime network requests and `file://` blocks fetch regardless, so the
+// changelog ships inside the page. It is the *text of* changelog.md, verbatim — the
+// two are kept in step by paste, which is what stops the in-app copy drifting.
+const CHANGELOG_MD = `
+## v1.2.2
+
+Two export fixes.
+
+- **A key is data, so it can hold \`.\`, \`[\`, \`]\` or \`\\\`.** Paths were built by plain
+  concatenation and re-split on every \`.\`, so a key carrying one of those four
+  characters either aborted the whole export — *bad path segment: …* — or resolved to
+  nothing and wrote a blank column without saying so. \`childPath\` now backslash-escapes
+  those four and \`parsePath\` undoes it, which is what makes the round trip lossless.
+  Hand-typed paths carry no backslashes and parse exactly as they did before. Where a
+  key really does contain one, the escapes show in the column name, because the column
+  name is the path.
+- ***Row unit* and *Sort rows by* no longer overflow the Export panel.** Both are filled
+  with path names and a \`<select>\` sizes itself to its widest option, so one long path
+  pushed the control past the panel edge.
+
+## v1.2.1
+
+Per-path handling moves out of the tree.
+
+- **\`as one column\`, \`parse as JSON\` and \`pretty-print\` are no longer bare checkboxes
+  hanging under a tree row.** Sitting one indent below the *selection* checkbox, they
+  read as more selection, which none of them is — one is a one-shot action that
+  rewrites the skeleton, one redefines what selection means beneath it, and one is a
+  deferred export flag. They also injected a ragged half-row between the aligned rows
+  W22 exists to align. All three now live in a **Handling** block at the top of the
+  **Path detail** pane, which the row click already opens (W24).
+- **They say what they do.** A pane has width for a label and a sentence, which a tree
+  row does not: *Keep whole — one column*, *Unpack into child paths*,
+  *Pretty-print on export*, each with its effect written beside it and its state — keys
+  kept, values parsed, repaired and residue — spelled out rather than abbreviated.
+- **Unpack is a button, not a checkbox**, because it is an action that rewrites the
+  tree, not a setting. Undo is *Collapse back to string*, in the same place.
+- **The row reads the state back.** A path with handling set carries a green chip in
+  its type cell — \`one column\`, \`unpacked\`, \`pretty\` — so nothing set in the pane is
+  invisible where you scan. Green separates *you did this* from the blue chips the
+  scan inferred. The Flat view shows the same chips.
+- **The Export panel names pretty-print without owning it** — a readout of how many
+  paths have it, pointing at Path detail. It is per path, and its exclusivity with
+  unpack is only legible next to unpack.
+
+## v1.2.0
+
+The fixer, reworked. Every item below is a value that used to land in residue, or
+a repair that used to be accepted when it should not have been.
+
+- **Wrapper braces are repaired** — \`{ [ … ] }\`, a model wrapping an array in an
+  object, is the commonest damaged shape in judge output and was residue in every
+  previous version: the stray-bracket search removed one bracket at a time, and the
+  pair needs two. Peeling the outer pair is now the first candidate tried, matched on
+  characters rather than tokens so an unterminated quote later in the value cannot
+  hide the pair that is plainly there (W8).
+- **The interior-quote rule works outside Chrome** — it located the failure by reading
+  \`position N\` out of V8's error message, which JavaScriptCore does not emit, so the
+  rule was silently dead in Safari and every WebKit view and nowhere else. The fixer
+  now finds the failure itself by walking its own token stream. The suite runs against
+  both engines' error shapes and reports no drift (W8).
+- **Interior quotes are escaped, not substituted** — rule 12 rewrote an interior \`"\`
+  to \`'\`, changing the content of any value that quoted something. It now escapes to
+  \`\\"\`, which parses identically and preserves the text, so a judge reason about
+  \`"soles"\` keeps its quotes (W7).
+- **A repair that parses is no longer automatically accepted** — \`{"a":1}{"b":2}\` was
+  being "repaired" into a single object keyed \`a':1}{'b\`. Concatenated roots, truncated
+  values and non-JSON prose are classified and refused before the search starts, and a
+  string-extending candidate may not swallow unbalanced brackets (W8).
+- **Four new rules** — markdown code fences, prose wrapped around the payload, raw
+  control characters inside strings, and invalid escapes such as \`\\d\` or a Windows
+  path. Apostrophes inside single-quoted strings, the spec's own listed edge case for
+  rule 1 and never implemented, now resolve through the same search as interior
+  quotes (W7).
+- **Rules run to a fixpoint and the ambiguous ones are a bounded search over it**,
+  taking candidates from the original text as well as the rewritten one. A value
+  needing a fence stripped, a brace pair peeled and quotes converted comes out in one
+  go instead of not at all (W8).
+- **Residue says why** — each refused value carries a cause (cut off mid-structure,
+  two roots concatenated, not JSON, no reading that parses) rather than a raw engine
+  message. The dialog leads with the tally, per-value labels name the class, and the
+  downloadable \`.jsonl\` carries \`cause\` beside \`reason\`, so thousands of entries can
+  be triaged instead of read (W10).
+- Faster on what already worked: every rule opens with a substring guard before
+  tokenising, so a 246 KB single-quoted value repairs in ~5 ms against ~12 ms in
+  v1.1.0.
+
+## v1.1.0
+
+- **Containers can stay whole** — a nested object no longer has to be exported as a
+  scatter of leaf columns. Any container row gains an **as one column** toggle: the
+  path itself becomes the column and its value is written as JSON. Deselecting a
+  sub-node repackages the object without that key rather than decomposing it; with
+  everything ticked the output is the original object, key order intact. Nested
+  containers resolve to the outer one, and a container with everything deselected
+  emits \`{}\` so CSV headers stay stable between exports. \`specifications.md\` →
+  Behaviour → "Selection" (W21).
+- **The tree row is a column grid** — path, type, size, example and presence each get
+  their own column instead of one ragged \`·\`-joined string, so a file's field sizes
+  and examples can be scanned down the page. Type badges drop their counts unless the
+  node's types are actually split. The Flat view gains the same size column; the
+  TSV/Markdown/JSON Schema emits are unchanged. (W22)
+- **Help and changelog are dialogs** — both open from the rail rather than living at
+  the bottom of the page, and the changelog is one of them rather than a section
+  inside the other. The changelog ships inlined in the page, so it works over
+  \`file://\` with no network request. (W23)
+
+## v1.0.0
+
+First release. Consolidates Data Skeleton Script, JSONL Splitter and the Python
+JSONL-to-CSV converter into one single-file tool. None of the three are retired.
+
+- Merged structure skeleton across JSON, JSONL/NDJSON, CSV/TSV, XML/HTML and YAML,
+  with content-based format detection, presence math relative to parent, type
+  inference on all strings, map collapsing, and full array walking — the whole
+  Data Skeleton engine, carried over intact (D1–D19).
+- **Records retained in the Web Worker** with streamed decoding and chunked Blob
+  export, holding peak memory to roughly 1× file size. JSONL and CSV stream to a
+  500 MB target; JSON, YAML and XML are capped at 200 MB with the reason stated (W3,
+  W4).
+- **Progressive scanning** — the tree appears within about a second from the first
+  ~1,000 records and refines as the scan runs, instead of holding a progress bar for
+  up to a minute. Percentages tick, new paths appear, and the report carries a
+  "provisional" badge until the scan completes. Selection works while scanning (W13).
+- **Path selection** — checkboxes in both the Tree and Flat views, driving one shared
+  selection set. The Flat view gains search and sort; the emit dropdown (bare list,
+  TSV, Markdown, JSON Schema) gains a Selected / All switch (W16).
+- **CSV and JSONL export** from the selected paths. Paths inside arrays project into
+  a single JSON-array column, preserving one row per record; a single **explode-by**
+  picker switches the row unit to one collection's elements and announces the
+  resulting row count before you run it (W5).
+- **Map-aware selection** — collapsed \`{*}\` nodes project as objects keyed by the map
+  key, are tickable as the key itself, and can be exploded into one row per entry
+  (W19).
+- **JSON Fixer** — repairs JSON stored inside string values, the standard failure mode
+  of model-generated fields. Twelve deterministic rules (quote style, smart quotes,
+  stray brackets, trailing and missing commas, unquoted keys and values, \`=\` for \`:\`,
+  Python literals, comments, invisible characters, interior quotes) run as a
+  **verify-loop**: a fix is accepted only when the result actually parses, tie-broken
+  on fewest characters changed. Anything it cannot fix is returned byte-identical
+  with the parser's reason. Replaces an agentic step — no network call, immune to
+  prompt injection, and it cannot translate multilingual payloads by accident
+  (W6–W8).
+- **Unpack embedded JSON** — a per-path "parse as JSON" toggle repairs a path's values
+  and grafts their structure into the skeleton as real, selectable children with full
+  statistics. Recursion is manual, one level per toggle (W9).
+- **Residue handling** — values the verify-loop provably cannot fix are surfaced two
+  ways: an inline editor when there are fewer than 50, or a downloadable residue file
+  that can be repaired externally and merged back in on record index + path (W10).
+- **Duplicate-key detection** — reported pre-parse, since \`JSON.parse\` silently keeps
+  the last occurrence and destroys the evidence.
+- **Statistics on three surfaces**, each with a distinct job: a persistent **summary
+  strip** for file-level facts (records, paths, depth, failures, size, format); a
+  **Stats tab** for comparison across paths (sparsest fields ranked, type conflicts,
+  cardinality, heaviest fields by bytes); and a **Path detail pane** for one path in
+  depth (length histogram, value distribution, top values, null rate, array length
+  spread). Clicking a tree row flips the right pane from Preview to Path detail (W11).
+- **Preview table** over the first ~200 records, with per-row expansion to the literal
+  output line. Preview and export share one pipeline implementation, so the preview
+  cannot drift from what gets written (W18).
+- Export transforms: **flatten** nested keys to dotted paths, **split** over-long
+  top-level strings at a configurable cap, **remove line breaks**, **pretty-print**
+  embedded JSON, and **sort rows** by any selected column (W2, W12).
+- **Number guards** — integers above 2^53−1 are quoted on CSV export so 19-digit ids
+  survive a spreadsheet, and precision-loss warnings fire on any numeric literal that
+  cannot round-trip, in both formats (W15).
+- **Warnings panel** consolidating parse failures, ragged CSV rows, precision loss,
+  flatten and split collisions, oversize values, and duplicate keys.
+- **Recipe files** — save the whole configuration (selected paths, unpack toggles,
+  explode-by, flatten, split settings, line-break mode, sort, format, record path) as
+  a ~2 KB \`.recipe.json\`, and load it onto another file. Loading reconciles by path
+  and reports what matched, what is missing, and what is new. No browser storage, so
+  recipes work identically on \`file://\` and Pages (W14).
+- **Redact toggle** strips previews, enums and value labels from the structural
+  surfaces and structural exports. It does not blank the preview table — it is a
+  report-hygiene switch, not a screen-share switch (W20).
+- Single self-contained \`index.html\`. No build step, no framework, zero network
+  requests at runtime. Runs from \`file://\` and from GitHub Pages (W1).
+`;
+
+// Deliberately covers only what changelog.md uses: ## headings, - bullets, **bold**
+// and \`code\`. Anything else is left as text rather than silently half-rendered.
+function renderMarkdown(md, host){
+  host.innerHTML = "";
+  const inline = function(s, into){
+    const re = /\*\*([^*]+)\*\*|`([^`]+)`/g;
+    let last = 0, m;
+    while((m = re.exec(s)) !== null){
+      if(m.index > last) into.appendChild(document.createTextNode(s.slice(last, m.index)));
+      into.appendChild(el(m[1] ? "strong" : "code", null, m[1] || m[2]));
+      last = re.lastIndex;
+    }
+    if(last < s.length) into.appendChild(document.createTextNode(s.slice(last)));
+  };
+  let list = null;
+  const para = [];
+  const flush = function(){
+    if(!para.length) return;
+    const li = el("li");
+    inline(para.join(" "), li);
+    if(!list){ list = el("ul"); host.appendChild(list); }
+    list.appendChild(li);
+    para.length = 0;
+  };
+  for(const raw of md.split("\n")){
+    const line = raw.trim();
+    if(line === ""){ flush(); continue; }
+    if(line.slice(0, 3) === "## "){
+      flush(); list = null;
+      host.appendChild(el("h3", null, line.slice(3)));
+      continue;
+    }
+    if(line[0] === "-" && line[1] === " "){ flush(); para.push(line.slice(2)); continue; }
+    if(para.length){ para.push(line); continue; }        // continuation of a bullet
+    flush(); list = null;
+    const p = el("p");
+    inline(line, p);
+    host.appendChild(p);
+  }
+  flush();
+}
+
+let logRendered = false;
+$("logBtn").addEventListener("click", function(){
+  if(!logRendered){ logRendered = true; renderMarkdown(CHANGELOG_MD, $("logBody")); }
+  $("logVer").textContent = "v" + VERSION;
+  $("logDlg").showModal();
+});
+$("logClose").addEventListener("click", function(){ $("logDlg").close(); });
+$("helpBtn").addEventListener("click", function(){ $("helpDlg").showModal(); });
+$("helpClose").addEventListener("click", function(){ $("helpDlg").close(); });
+

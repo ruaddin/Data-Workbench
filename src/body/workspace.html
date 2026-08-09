@@ -1,0 +1,75 @@
+    <!-- ============================ workspace ============================ -->
+    <div id="workspace" class="workspace hidden">
+      <section class="report" aria-label="Skeleton report">
+        <div class="tabs" role="tablist">
+          <button class="tab" id="tabTree" role="tab" aria-selected="true">Tree</button>
+          <button class="tab" id="tabFlat" role="tab" aria-selected="false">Flat</button>
+          <button class="tab" id="tabStats" role="tab" aria-selected="false">Stats</button>
+          <span class="grow"></span>
+          <span class="meta" id="selCount">0 / 0 selected</span>
+        </div>
+
+        <div class="toolbar" id="treeTools">
+          <label class="field-label" for="sortSel" style="margin:0">Order</label>
+          <select class="select" id="sortSel">
+            <option value="doc">first seen</option>
+            <option value="alpha">alphabetical</option>
+            <option value="presence">presence ↓</option>
+          </select>
+          <label class="chk"><input type="checkbox" id="absolute"> absolute presence</label>
+          <button class="btn-sm" id="expandAll">Expand all</button>
+          <button class="btn-sm" id="collapseAll">Collapse</button>
+          <span class="grow"></span>
+          <button class="btn-sm" id="clearSel">Clear selection</button>
+          <label class="chk"><input type="checkbox" id="redact"> redact values</label>
+        </div>
+
+        <div class="toolbar hidden" id="flatTools">
+          <div class="search">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input id="flatSearch" type="search" placeholder="Filter paths…" aria-label="Filter paths">
+            <span class="count" id="flatCount"></span>
+          </div>
+          <select class="select" id="emitFmt" aria-label="Structural export format">
+            <option value="bare">bare path list</option>
+            <option value="tsv">TSV</option>
+            <option value="md">Markdown table</option>
+            <option value="schema">JSON Schema</option>
+          </select>
+          <select class="select" id="emitScope" aria-label="Structural export scope">
+            <option value="selected">selected</option>
+            <option value="all">all paths</option>
+          </select>
+          <button class="btn-sm" id="emitCopy">Copy</button>
+          <button class="btn-sm" id="emitDl">Download</button>
+        </div>
+
+        <div class="thead" id="treeHead">
+          <span class="h-name">path</span>
+          <span class="h-type">type</span>
+          <span class="h-size">size</span>
+          <span class="h-ex">example</span>
+          <span class="h-pres">present</span>
+        </div>
+
+        <div class="body" id="reportBody">
+          <div id="treeView" class="tree"></div>
+          <div id="flatView" class="table-wrap hidden"></div>
+          <div id="statsView" class="hidden"></div>
+        </div>
+      </section>
+
+      <section class="side" aria-label="Preview and path detail">
+        <div class="tabs" role="tablist">
+          <button class="tab" id="tabPreview" role="tab" aria-selected="true">Preview</button>
+          <button class="tab" id="tabDetail" role="tab" aria-selected="false">Path detail</button>
+          <span class="grow"></span>
+          <span class="meta" id="previewMeta"></span>
+        </div>
+        <div class="body">
+          <div id="previewView"></div>
+          <div id="detailView" class="hidden"></div>
+        </div>
+      </section>
+    </div>
+

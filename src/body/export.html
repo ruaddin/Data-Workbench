@@ -1,0 +1,139 @@
+    <!-- ============================ export ============================ -->
+    <section class="panel hidden" id="exportPanel" aria-label="Export">
+      <div class="panel-head">
+        <h2 class="panel-title">Export</h2>
+        <span class="rowcount" id="rowCount"></span>
+      </div>
+
+      <div class="export-grid">
+        <label class="field"><span class="field-label">Format</span>
+          <select class="select" id="outFmt">
+            <option value="jsonl">JSONL</option>
+            <option value="csv">CSV</option>
+          </select>
+        </label>
+        <label class="field" style="flex:1 1 260px"><span class="field-label">Row unit (explode by)</span>
+          <select class="select" id="explodeSel"><option value="">record</option></select>
+        </label>
+        <label class="field"><span class="field-label">Line breaks in values</span>
+          <select class="select" id="lineBreaks">
+            <option value="keep">keep</option>
+            <option value="space">replace with space</option>
+            <option value="literal">replace with \n</option>
+            <option value="drop">remove</option>
+          </select>
+        </label>
+        <label class="field" style="flex:1 1 200px"><span class="field-label">Sort rows by</span>
+          <select class="select" id="sortBy"><option value="">none</option></select>
+        </label>
+        <label class="field"><span class="field-label">Direction</span>
+          <select class="select" id="sortDir">
+            <option value="asc">ascending</option>
+            <option value="desc">descending</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="option-row" style="margin-top:16px">
+        <label class="chk"><input type="checkbox" id="optFlatten"> flatten nested keys</label>
+        <label class="chk"><input type="checkbox" id="optSplit"> split values at cap</label>
+        <label class="field"><span class="field-label">Cap</span>
+          <input class="input" id="splitCap" type="text" value="30000" style="width:90px" inputmode="numeric" disabled>
+        </label>
+        <label class="field"><span class="field-label">Index</span>
+          <select class="select" id="splitStyle" disabled>
+            <option value="num">numerical</option>
+            <option value="alpha">alphabetical</option>
+          </select>
+        </label>
+        <label class="field"><span class="field-label">Custom token</span>
+          <input class="input" id="splitToken" type="text" style="width:120px" placeholder="(none)" spellcheck="false" disabled>
+        </label>
+        <span class="field-hint" id="prettyNote" title="Set per path, under Handling in the Path detail pane">Pretty-print embedded JSON: off</span>
+      </div>
+
+      <div class="option-row" style="margin-top:16px">
+        <button class="btn btn-primary" id="exportBtn">Export</button>
+        <button class="btn btn-secondary" id="saveRecipe">Save recipe</button>
+        <button class="btn btn-secondary" id="loadRecipe">Load recipe</button>
+        <input id="recipeFile" type="file" accept=".json" class="hidden">
+              </div>
+      <div class="progress-wrap" style="margin-top:12px">
+        <div id="expProgress" class="hidden">
+          <div class="progress-head"><span id="expPhase">Exporting…</span><span class="pct" id="expPct"></span></div>
+          <div class="progress"><div id="expFill"></div></div>
+        </div>
+        <div id="expStatus" class="status hidden" role="status" aria-live="polite"></div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div id="dropOverlay" class="hidden">Drop to load</div>
+
+<dialog id="helpDlg" aria-labelledby="helpTitle">
+  <h2 id="helpTitle">How to read this report</h2>
+  <div class="dlg-body">
+      <ul style="font-size:13px;color:var(--text-2);line-height:1.8;margin:0;padding-left:20px">
+        <li><strong>Presence is relative to the parent.</strong> If <code>a.b</code> occurs 50 times and
+            <code>a.b.c</code> in all 50 of those, <code>c</code> reads 100%. Tick <em>absolute presence</em>
+            to score against the total record count. Inside an array the denominator is the number of elements.</li>
+        <li><strong>Every array element is walked</strong>, and all indices collapse to one <code>[]</code> node.
+            Ticking a path inside an array pulls that field from every element into a single JSON-array column,
+            so the row count never changes. Use <em>row unit</em> to explode one collection instead.</li>
+        <li><strong>ID-keyed objects collapse</strong> past the map-keys threshold into <code>{*}</code>.
+            A map's keys are data, so <code>{*}</code> is tickable, projects as an object keyed by the map key,
+            and can be exploded.</li>
+        <li><strong>Per-path handling lives in Path detail.</strong> Click any row: the right pane opens on that
+            path with a <em>Handling</em> block carrying <em>Keep whole — one column</em>,
+            <em>Unpack into child paths</em> and <em>Pretty-print on export</em>, each with what it does written
+            beside it. Whatever you set reads back in the row as a green chip.</li>
+        <li><strong>Embedded JSON can be repaired and unpacked.</strong> A path holding stringified JSON can be
+            unpacked from that block: values are repaired by a deterministic verify-loop — a fix is only
+            accepted when the result actually parses, and content is never altered to get there — and the
+            discovered structure is grafted into the tree. Anything unfixable is listed as residue, each value
+            labelled with why: <em>cut off mid-structure</em>, <em>two roots concatenated</em>,
+            <em>not JSON at all</em>, or <em>no reading that parses</em>.</li>
+        <li><strong>Redact</strong> strips previews, enums and value labels from the tree, Stats and Path detail,
+            and from the structural exports. It deliberately does <em>not</em> blank the preview table or the
+            exported data — it is a report-hygiene switch, not a screen-share switch.</li>
+        <li><strong>A container can stay whole.</strong> <em>Keep whole — one column</em> makes the path itself
+            the column, its value written as JSON. Unticking a sub-node repackages the object without that key
+            rather than splitting it into separate columns.</li>
+      </ul>
+  </div>
+  <div class="dlg-foot">
+    <button class="btn btn-secondary" id="helpClose">Close</button>
+  </div>
+</dialog>
+
+<dialog id="logDlg" aria-labelledby="logTitle">
+  <h2 id="logTitle">Changelog <span class="ver" id="logVer"></span></h2>
+  <div class="dlg-body md" id="logBody"></div>
+  <div class="dlg-foot">
+    <button class="btn btn-secondary" id="logClose">Close</button>
+  </div>
+</dialog>
+
+<dialog id="residueDlg" aria-labelledby="residueTitle">
+  <h2 id="residueTitle">Residue</h2>
+  <p id="residueLede"></p>
+  <div class="dlg-body" id="residueBody"></div>
+  <div class="dlg-foot">
+    <button class="btn btn-secondary" id="residueDl">Download .jsonl</button>
+    <button class="btn btn-secondary" id="residueClose">Close</button>
+    <button class="btn btn-primary" id="residueApply">Apply edits</button>
+  </div>
+</dialog>
+
+<dialog id="recipeDlg" aria-labelledby="recipeTitle">
+  <h2 id="recipeTitle">Load recipe</h2>
+  <p id="recipeLede"></p>
+  <div class="dlg-body" id="recipeBody"></div>
+  <div class="dlg-foot">
+    <button class="btn btn-secondary" id="recipeCancel">Cancel</button>
+    <button class="btn btn-primary" id="recipeApply">Apply anyway</button>
+  </div>
+</dialog>
+

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<!-- GENERATED FILE - do not edit. Edit src/ and run `python3 build.py`.
+     Shipping one self-contained file is the spec (W1); src/ is only how it is
+     written. This file stays committed: it is the artefact, not a by-product. -->
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data Workbench</title>
+<!-- No web-font <link>: the spec's zero-network guarantee (W1) outranks the house
+     font stack. 'Work Sans' / 'JetBrains Mono' are still named first so the tool
+     picks them up when they are installed locally; otherwise the system stack renders. -->
+<style>
+<!--@@ css/tokens.css @@-->
+<!--@@ css/shell.css @@-->
+<!--@@ css/intake.css @@-->
+<!--@@ css/workspace.css @@-->
+<!--@@ css/chrome.css @@-->
+</style>
+</head>
+<body>
+<!--@@ body/shell.html @@-->
+<!--@@ body/intake.html @@-->
+<!--@@ body/summary.html @@-->
+<!--@@ body/workspace.html @@-->
+<!--@@ body/export.html @@-->
+<!-- ==========================================================================
+     dw-core — detection, readers, inference, skeleton, fixer, pipeline, engine.
+     MUST stay free of DOM references: this block is re-executed inside the Web
+     Worker by blobbing its own source text (see DW.session in dw-main). Both the
+     Worker and the main-thread fallback drive DW.engine, and both preview and
+     export call DW.pipeline.run — sharing one implementation is what stops the
+     preview from drifting away from the file that gets written.
+     The YAML and XML readers touch `jsyaml` / `DOMParser`, but only from inside
+     function bodies the worker never calls: whole-document formats always run on
+     the main thread.
+     ========================================================================== -->
+<script id="dw-core">
+"use strict";
+var DW = (function(){
+<!--@@ core/constants.js @@-->
+<!--@@ core/detect.js @@-->
+<!--@@ core/readers.js @@-->
+<!--@@ core/skeleton.js @@-->
+<!--@@ core/fix.js @@-->
+<!--@@ core/pipeline.js @@-->
+<!--@@ core/engine.js @@-->
+
+return {
+  detect:detect, infer:infer, readers:readers, skeleton:skeleton, fix:fix,
+  pipeline:pipeline, engine:engine, typeOf:typeOf, childPath:childPath, nodeAt:nodeAt,
+  underPath:underPath,
+  valueRefs:valueRefs, plain:plain, has:has, PREVIEW:PREVIEW, MAX_SAFE:MAX_SAFE,
+  LEN_EDGES:LEN_EDGES
+};
+})();
+</script>
+
+<!-- ==========================================================================
+     dw-main — intake, session lifecycle, selection state, rendering, exports.
+     The only section that touches the DOM.
+     ========================================================================== -->
+<script id="dw-main">
+"use strict";
+(function(){
+<!--@@ ui/state.js @@-->
+<!--@@ ui/dom.js @@-->
+<!--@@ ui/docs.js @@-->
+<!--@@ ui/intake.js @@-->
+<!--@@ ui/session.js @@-->
+<!--@@ ui/scan.js @@-->
+<!--@@ ui/summary.js @@-->
+<!--@@ ui/selection.js @@-->
+<!--@@ ui/tree.js @@-->
+<!--@@ ui/handling.js @@-->
+<!--@@ ui/views.js @@-->
+<!--@@ ui/detail.js @@-->
+<!--@@ ui/preview.js @@-->
+<!--@@ ui/export.js @@-->
+<!--@@ ui/residue.js @@-->
+<!--@@ ui/recipes.js @@-->
+<!--@@ ui/wiring.js @@-->
+
+DW.ui = {state:state, render:render, run:run, session:session, emitters:emitters,
+         looksLikeResidue:looksLikeResidue, applyFixed:applyFixed};
+
+})();
+</script>
+
+<!-- ==========================================================================
+     Vendored js-yaml 4.1.0 (MIT), unmodified. The only third-party code in the
+     file, and no new dependency is added by the merge. It sits last so the
+     readable code stays at the top; nothing above runs at parse time, and the
+     YAML reader only dereferences `jsyaml` when called.
+     ========================================================================== -->
+<script id="js-yaml">
+<!--@@ vendor/js-yaml.min.js @@-->
+</script>
+</body>
+</html>

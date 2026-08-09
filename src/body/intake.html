@@ -1,0 +1,67 @@
+    <!-- ============================ intake ============================ -->
+    <section class="panel" aria-label="Input">
+      <div id="drop" class="dropzone" tabindex="0" role="button" aria-label="Choose or drop a data file">
+        <div>Drop a data file here, or <strong>click to browse</strong></div>
+        <div class="dropzone-hint">
+          JSON · JSONL/NDJSON · CSV/TSV · XML/HTML · YAML — format is detected from content, not the
+          extension. JSONL and CSV stream to ~500&nbsp;MB; JSON, YAML and XML are capped at 200&nbsp;MB.
+        </div>
+        <input id="file" type="file">
+      </div>
+
+      <div id="fileChip" class="file-chip hidden" style="margin-top:16px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3v5h5"/><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/></svg>
+        <span class="name" id="fileName"></span>
+        <span class="meta" id="fileMeta"></span>
+        <button class="btn-sm" id="clearFile" aria-label="Remove file">Remove</button>
+      </div>
+
+      <details class="disclosure" style="margin-top:12px">
+        <summary>or paste data</summary>
+        <textarea class="textarea" id="paste" rows="6" spellcheck="false"
+          placeholder="Paste JSON, JSONL, CSV, XML or YAML here…" style="margin-top:10px"></textarea>
+        <div class="field-hint">Pasted input is always parsed whole, never streamed.</div>
+      </details>
+
+      <div class="option-row" style="margin-top:16px">
+        <label class="field"><span class="field-label">Format</span>
+          <select class="select" id="formatSel">
+            <option value="">auto-detect</option>
+            <option value="jsonl">JSONL</option>
+            <option value="json">JSON</option>
+            <option value="csv">CSV ‘,’</option>
+            <option value="tsv">TSV</option>
+            <option value="scsv">CSV ‘;’</option>
+            <option value="pcsv">CSV ‘|’</option>
+            <option value="xml">XML / HTML</option>
+            <option value="yaml">YAML</option>
+          </select>
+        </label>
+        <label class="field" style="flex:1 1 240px"><span class="field-label">Record path (optional)</span>
+          <input class="input" id="recordPath" type="text" placeholder="e.g. data.results[]" spellcheck="false">
+        </label>
+        <label class="field"><span class="field-label">Enum ≤</span>
+          <input class="input" id="enumMax" type="text" value="12" style="width:80px" inputmode="numeric">
+        </label>
+        <label class="field"><span class="field-label">Map keys &gt;</span>
+          <input class="input" id="mapMax" type="text" value="50" style="width:80px" inputmode="numeric">
+        </label>
+      </div>
+
+      <div class="option-row" style="margin-top:16px">
+        <button class="btn btn-primary" id="run" disabled>Scan</button>
+        <button class="btn btn-secondary hidden" id="cancel">Cancel</button>
+        <span class="field-hint" id="detected" style="margin:0"></span>
+      </div>
+
+      <div class="progress-wrap" style="margin-top:16px">
+        <div id="progress" class="hidden">
+          <div class="progress-head"><span id="phase">Scanning…</span><span class="pct" id="pctLabel"></span></div>
+          <div class="progress"><div id="fill"></div></div>
+        </div>
+        <div id="status" class="status hidden" role="status" aria-live="polite"></div>
+      </div>
+      <div id="fatal" class="callout err hidden" role="alert" style="margin-top:12px"></div>
+      <div id="noWorker" class="callout hidden" style="margin-top:12px"></div>
+    </section>
+

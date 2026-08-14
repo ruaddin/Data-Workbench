@@ -21,9 +21,10 @@ function run(){
   state.unpackInfo = new Map();
   state.pretty = new Set();
   state.whole = new Set();
+  state.estimates = new Map();
   hide("fatal"); hide("status"); hide("warnPanel");
   $("run").disabled = true;
-  show("cancel");
+  opStart("scan");
   show("progress");
   $("fill").style.width = "0%";
   $("pctLabel").textContent = "";
@@ -45,6 +46,7 @@ function run(){
       }
       $("phase").textContent = "Scanning… " + num(m.records) + " records" +
         (m.errCount ? " · " + num(m.errCount) + " failed" : "");
+      opProgress(m);
       return;
     }
     if(m.t === "slice"){ state.slice = m.records; renderPreview(); return; }
@@ -55,6 +57,8 @@ function run(){
       showResults();
       return;
     }
+    // Everything below ends the scan, so the operation bar goes first.
+    opFinish();
     if(m.t === "done"){ state.scanning = false; finishScan(); report(m, Date.now() - t0); return; }
     if(m.t === "cancelled"){ state.scanning = false; finishScan(); status("status","warn","Cancelled."); show("status"); return; }
     if(m.t === "fail"){
@@ -67,7 +71,6 @@ function run(){
 
 function finishScan(){
   $("run").disabled = state.source === null;
-  hide("cancel");
   hide("progress");
   setControlsDisabled(false);
 }
@@ -121,11 +124,4 @@ function countPaths(node){
 }
 
 $("run").addEventListener("click", run);
-$("cancel").addEventListener("click", function(){
-  session.cancel();
-  state.scanning = false;
-  finishScan();
-  status("status", "warn", "Cancelled.");
-  show("status");
-});
 

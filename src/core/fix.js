@@ -37,8 +37,33 @@ const DEPTH = 2;
 const BIG = 50000;
 function budgetFor(text){ return text.length > BIG ? 40 : 400; }
 
+/* --- W26 · the tokenize memo -------------------------------------------------
+   Non-null only for the duration of one `repair()` call. The search revisits text
+   it has already tokenised — candidates come off the original as well as the
+   fixpoint, and each of the thirteen deterministic rules tokenises independently
+   — so one search node costs up to 39 tokenisations of the whole value. `tokenize`
+   is a pure function of its input string, so a Map keyed by that string is
+   behaviour-preserving by construction; this is a memo, never a new algorithm.
+
+   Callers must treat the returned array and its tokens as read-only, which they
+   already do: every consumer either filters into a fresh array (`nonComment`) or
+   reads spans out to build edits. Nothing sorts or mutates it in place.
+   ----------------------------------------------------------------------------- */
+let tokMemo = null;
+
 // Tolerant scanner. Must never throw: it exists to describe malformed text.
 function tokenize(text){
+  if(tokMemo !== null){
+    const hit = tokMemo.get(text);
+    if(hit !== undefined) return hit;
+    const fresh = tokenizeRaw(text);
+    tokMemo.set(text, fresh);
+    return fresh;
+  }
+  return tokenizeRaw(text);
+}
+
+function tokenizeRaw(text){
   const T = [], n = text.length;
   let i = 0;
   while(i < n){
@@ -192,6 +217,42 @@ const CAUSE_TEXT = {
   "empty value":        "empty value",
   "not a string":       "not a string"
 };
+
+// The three causes no honest repair exists for. `repair` refuses on this set and
+// so does `triage`, through the same function, so the two can never drift.
+const REFUSE = {"truncated":1, "concatenated-roots":1, "not json":1};
+
+/* ==========================================================================
+   triage (W28) — how much work is in this file, answered without doing the work.
+
+   `repair` opens: parses? → validate → refuse three causes → *search*. Triage is
+   those first steps and nothing else. It is not a new algorithm, not a second
+   engine and not a heuristic — it is literally the function `repair` calls, which
+   is what makes "triage's refusal equals repair's refusal" true by construction
+   rather than by a test that has to keep two copies in step.
+
+   Verdicts are a separate axis from the residue causes of W10. A cause is the
+   verdict of a *completed* repair, and `unexpected` specifically means "the search
+   ran and found nothing" — a sentence triage can never truthfully say.
+   ========================================================================== */
+
+// The trimmed, non-empty, known-not-to-parse case. Split out because the scan
+// reaches here having already paid for the JSON.parse inside `infer.of`, and the
+// spec's cost argument depends on classification adding one `validate` walk and
+// no second traversal.
+function triageTrimmed(trimmed){
+  const v = validate(trimmed);
+  if(REFUSE[v.cause]) return {verdict:"refused", cause:v.cause};
+  return {verdict:"undetermined", cause:null};
+}
+
+function triage(text){
+  if(typeof text !== "string") return {verdict:"refused", cause:"not a string"};
+  const trimmed = text.trim();
+  if(trimmed === "") return {verdict:"refused", cause:"empty value"};
+  if(parses(trimmed)) return {verdict:"parses", cause:null};
+  return triageTrimmed(trimmed);
+}
 
 /* ==========================================================================
    The deterministic rules. Each is a pure text → text|null; null means "did not
@@ -594,9 +655,51 @@ function search(text, depth, found, budget, trail){
   }
 }
 
+/* --- W26 · the repair memo ---------------------------------------------------
+   One value is repaired up to three times over its life — once by `scanPath` at
+   unpack, again by `pipeline.project` on every preview re-render, and again for
+   export — with nothing retained between them. This keeps the *result* of a
+   repair, keyed by the raw text that produced it.
+
+   It holds text and small scalars, never parsed objects: `JSON.parse` is native
+   and cheap next to a ≤400-node search, and retaining object graphs for a
+   heavily-populated path is exactly the pressure W4 exists to keep out of the
+   heap. The entries for values nothing repaired are the highest-yield ones in the
+   map — each burns the entire search budget on every pass to produce a result
+   `project` discards anyway.
+
+   Keyed by content, therefore self-invalidating: `merge` writes new raw strings
+   into records, and a new string is a new key, so an externally-repaired value can
+   never read a stale entry. Clearing on scan bounds memory; it is not doing
+   correctness work.
+   ----------------------------------------------------------------------------- */
+const MEMO_CAP = 50000000;      // characters held, ~100 MB at UTF-16
+const repairMemo = new Map();
+let memoChars = 0;
+
+function clearCache(){ repairMemo.clear(); memoChars = 0; }
+
 function repair(text){
   if(typeof text !== "string")
     return {ok:false, out:text, rule:null, changed:0, reason:"not a string", cause:"not a string"};
+
+  const hit = repairMemo.get(text);
+  // A shallow copy, so a caller that annotates its result can never write through
+  // into the map. A cached result that differs from a computed one is a bug.
+  if(hit !== undefined) return Object.assign({}, hit);
+
+  const res = repairUncached(text);
+
+  // Past the cap, lookups still hit but nothing new is inserted: the tool degrades
+  // to its pre-v1.3.0 behaviour rather than growing without bound.
+  if(memoChars < MEMO_CAP){
+    memoChars += text.length + (res.ok ? res.out.length : 0);
+    repairMemo.set(text, res);
+  }
+  return Object.assign({}, res);
+}
+
+function repairUncached(text){
   const trimmed = text.trim();
   if(trimmed === "")
     return {ok:false, out:text, rule:null, changed:0, reason:"empty value", cause:"empty value"};
@@ -604,13 +707,21 @@ function repair(text){
     return {ok:true, out:trimmed, rule:null, changed:0, reason:null, cause:null, clean:true};
 
   // Structurally hopeless or deliberately out of scope: say so instead of
-  // searching for a reading that would have to invent data to exist.
-  const v = validate(trimmed);
-  if(v.cause === "truncated" || v.cause === "concatenated-roots" || v.cause === "not json")
+  // searching for a reading that would have to invent data to exist. This is the
+  // identical call `triage` makes (W28) — one refusal path, not two.
+  const v = triageTrimmed(trimmed);
+  if(v.verdict === "refused")
     return {ok:false, out:text, rule:null, changed:0, reason:CAUSE_TEXT[v.cause], cause:v.cause};
 
   const found = [];
-  search(trimmed, DEPTH, found, {n:budgetFor(trimmed)}, null);
+  tokMemo = new Map();
+  try{
+    search(trimmed, DEPTH, found, {n:budgetFor(trimmed)}, null);
+  } finally {
+    // Dropped on exit, so the transient token arrays for one value never
+    // accumulate across a path.
+    tokMemo = null;
+  }
   if(found.length){
     // Every candidate here has already parsed; the tie-break is fewest characters
     // changed, which is what keeps a big rewrite from beating a small correct one.
@@ -619,15 +730,30 @@ function repair(text){
             changed:changedChars(trimmed, found[0].out), reason:null, cause:null};
   }
   // Exhausted: hand back the input byte-identical, with the cause.
-  const cause = v.cause || "unexpected";
-  return {ok:false, out:text, rule:null, changed:0, reason:CAUSE_TEXT[cause] || cause, cause:cause};
+  const cause = "unexpected";
+  return {ok:false, out:text, rule:null, changed:0, reason:CAUSE_TEXT[cause], cause:cause};
 }
+
+/* Yield interval for the fixer's loops (W27). Time-based, not count-based: the
+   scan breathes every 256 records because records cost roughly the same, and
+   fixer values do not — in the reference file they span 6 to 200,000 characters
+   and one value cost 1,000× the median. A count-based yield would leave Cancel
+   unresponsive for tens of seconds. */
+const YIELD_MS = 50;
 
 // Runs repair across one path's values. Populates the "941/1000 parse · 59 fail"
 // readout, the residue list, the per-cause tally and the duplicate-key warnings.
-function scanPath(records, path){
+//
+// `ctl` is {breathe, tick, cancelled, total} and is optional — without it this is
+// the straight-line loop it has always been. With it, the loop yields on elapsed
+// time so the Worker can receive {c:'cancel'}, which it cannot do while a
+// synchronous loop holds its event loop (W27).
+async function scanPath(records, path, ctl){
+  ctl = ctl || {};
   const steps = readers.parsePath(path);
-  const out = {total:0, parsed:0, repaired:0, residue:[], dups:[], values:[], causes:{}};
+  const out = {total:0, parsed:0, repaired:0, residue:[], dups:[], values:[],
+               causes:{}, cancelled:false};
+  let last = Date.now();
   for(let i = 0; i < records.length; i++){
     const refs = valueRefs(records[i], steps);
     for(let o = 0; o < refs.length; o++){
@@ -646,14 +772,24 @@ function scanPath(records, path){
         if(out.residue.length < 5000)
           out.residue.push({i:i, o:o, path:path, reason:r.reason, cause:r.cause, raw:raw});
       }
+
+      if(!ctl.breathe) continue;
+      const now = Date.now();
+      if(now - last < YIELD_MS) continue;
+      last = now;
+      if(ctl.tick) ctl.tick({done:out.total, total:ctl.total || 0, parsed:out.parsed,
+                             repaired:out.repaired, residue:out.residue.length});
+      await ctl.breathe();
+      if(ctl.cancelled && ctl.cancelled()){ out.cancelled = true; return out; }
     }
   }
   return out;
 }
 
 return {tokenize:tokenize, repair:repair, scanPath:scanPath, duplicateKeys:duplicateKeys,
-        rules:rules, validate:validate, detFixpoint:detFixpoint,
+        rules:rules, validate:validate, detFixpoint:detFixpoint, triage:triage,
+        triageTrimmed:triageTrimmed, clearCache:clearCache,
         bracketCandidates:bracketCandidates, extendCandidates:extendCandidates,
-        proseCandidates:proseCandidates, CAUSE_TEXT:CAUSE_TEXT};
+        proseCandidates:proseCandidates, CAUSE_TEXT:CAUSE_TEXT, YIELD_MS:YIELD_MS};
 })();
 

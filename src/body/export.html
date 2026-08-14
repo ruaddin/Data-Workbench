@@ -137,3 +137,14 @@
   </div>
 </dialog>
 
+
+<!-- ==========================================================================
+     Operation bar (W27) — one Cancel, in one place, present whenever any
+     operation is in flight. It used to live in the intake panel and appear only
+     during a scan, which is not where you are standing when an unpack is running.
+     ========================================================================== -->
+<div id="opBar" class="opbar hidden" role="status" aria-live="polite">
+  <span class="opbar-dot" aria-hidden="true"></span>
+  <span class="opbar-text" id="opText"></span>
+  <button class="btn-sm" id="opCancel">Cancel</button>
+</div>

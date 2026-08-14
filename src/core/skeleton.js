@@ -2,7 +2,7 @@
 
 function newNode(key){
   return {
-    key:key, seen:0, bytes:0, types:new Map(), inferred:new Map(),
+    key:key, seen:0, bytes:0, types:new Map(), inferred:new Map(), triage:new Map(),
     strLenMin:null, strLenMax:null, numMin:null, numMax:null, preview:null,
     distinct:new Set(), vals:new Map(), valsOver:false,
     lens:new Array(LEN_EDGES.length).fill(0),
@@ -12,11 +12,22 @@ function newNode(key){
   };
 }
 
+/* Characters classified before triage (W28) stops looking. `infer.of` already
+   calls JSON.parse on every string opening `{` or `[`; classification adds one
+   `validate` walk to the ones that fail, on a value already in hand. On an
+   ordinary file that is noise. On a file where a broken path appears in every one
+   of two million records it is tens of seconds, added to the loop W13 promises
+   will show a tree inside a second — so it is capped, and past the cap the scan
+   keeps counting failures but stops classifying them. Degrade, don't grow: the
+   same shape as W26's memo cap. */
+const TRIAGE_CAP = 50000000;
+
 function skeleton(opts){
   const enumMax = opts && opts.enumMax > 0 ? opts.enumMax : 12;
   const mapMax  = opts && opts.mapMax  > 0 ? opts.mapMax  : 50;
   const root = newNode("(root)");
   let recordCount = 0;
+  let triageChars = 0;
 
   function childOf(node, key){
     let c = node.children.get(key);
@@ -60,6 +71,7 @@ function skeleton(opts){
     dst.bytes += src.bytes;
     for(const e of src.types) bump(dst.types, e[0], e[1]);
     for(const e of src.inferred) bump(dst.inferred, e[0], e[1]);
+    for(const e of src.triage) bump(dst.triage, e[0], e[1]);
     dst.strLenMin = minN(dst.strLenMin, src.strLenMin);
     dst.strLenMax = maxN(dst.strLenMax, src.strLenMax);
     dst.numMin = minN(dst.numMin, src.numMin);
@@ -113,6 +125,19 @@ function skeleton(opts){
       if(node.preview === null) node.preview = value.slice(0, PREVIEW);
       const inf = infer.of(value);
       if(inf) bump(node.inferred, inf);
+      // W28. `infer.of` has just established this value opens like JSON and does
+      // not parse; classifying it is one `validate` walk over text already in
+      // hand. The verdict says whether Unpack has anything to work with here —
+      // `refused` is text no repair can invent back, `undetermined` is the
+      // fixer's to decide, and most of those repair.
+      if(inf === "json?"){
+        if(triageChars + value.length > TRIAGE_CAP) bump(node.triage, "unclassified");
+        else {
+          triageChars += value.length;
+          const t = fix.triageTrimmed(value.trim());
+          bump(node.triage, t.verdict === "refused" ? t.cause : t.verdict);
+        }
+      }
       addValue(node, value);
       return;
     }

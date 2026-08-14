@@ -81,8 +81,10 @@ function reconcileRecipe(r, name){
     renderSortOptions();
     state.opts.sortBy = matched.indexOf(r.sortBy) >= 0 ? r.sortBy : "";
     $("sortBy").value = state.opts.sortBy;
-    // Unpack toggles are re-run, not restored: a graft has to be rebuilt from the data.
-    for(const p of (r.unpacked || [])) if(all.has(p)) doUnpack(p);
+    // Unpack toggles are re-run, not restored: a graft has to be rebuilt from the
+    // data. One at a time — the session carries one command at a time, and firing
+    // these in a loop raced them against each other.
+    unpackInSequence((r.unpacked || []).filter(function(p){ return all.has(p); }));
     afterSelectionChange();
     dlg.close();
   };

@@ -207,6 +207,10 @@ function ok(name, cond, extra){
   if(cond) pass++; else { fail++; console.log("  FAIL " + name + (extra ? "  " + extra : "")); }
 }
 
+main();
+
+async function main(){
+
 const recs = [
   {id:1, payload:`[{"r": "clean"}]`},
   {id:2, payload:`{ [{'r': 'wrapped'}] }`},
@@ -214,7 +218,7 @@ const recs = [
   {id:4, payload:`{"a":1}{"b":2}`},
   {id:5, payload:`sorry, I can't help with that`},
 ];
-const res = DW.fix.scanPath(recs, "payload");
+const res = await DW.fix.scanPath(recs, "payload");
 ok("scanPath total", res.total === 5, "got " + res.total);
 ok("scanPath parsed", res.parsed === 1, "got " + res.parsed);
 ok("scanPath repaired", res.repaired === 1, "got " + res.repaired);
@@ -228,7 +232,7 @@ ok("values collected", res.values.length === 2 && res.values[0][0].r === "clean"
 
 const dups = DW.fix.duplicateKeys(`{"a":1,"a":2,"b":{"c":1,"c":2}}`);
 ok("duplicateKeys", dups.length === 2 && dups[0] === "a" && dups[1] === "c", JSON.stringify(dups));
-ok("dups via scanPath", DW.fix.scanPath([{p:`{'a':1,'a':2}`}], "p").dups.length === 1);
+ok("dups via scanPath", (await DW.fix.scanPath([{p:`{'a':1,'a':2}`}], "p")).dups.length === 1);
 
 for(const src of [`{ [{'r': 'x'}] }`, `{"r": "cut off`, `{"a":1}{"b":2}`]){
   const before = src;
@@ -248,9 +252,145 @@ ok("content preserved losslessly", pv.rows[0]["blob.[].why"] === `it's "off"`,
    JSON.stringify(pv.rows[0]["blob.[].why"]));
 ok("second record intact", pv.rows[2]["blob.[].why"] === "fine");
 
+/* ---- W26: the memos are memos, not a second algorithm ------------------- */
+//
+// The whole safety argument is that both caches memoise pure functions. A cached
+// result that differs from a computed one is a bug, so this replays the entire
+// corpus through a cleared cache and then through a warm one and asserts the
+// results are identical field for field — including the residue causes, which is
+// where a "clever" cache would drift first.
+
+console.log("\n=== W26 memos ===");
+
+DW.fix.clearCache();
+const cold = CORPUS.map(c => DW.fix.repair(c[1]));
+const warm = CORPUS.map(c => DW.fix.repair(c[1]));
+let drifted = 0;
+for(let i = 0; i < CORPUS.length; i++){
+  const a = cold[i], b = warm[i];
+  if(a.ok !== b.ok || a.out !== b.out || a.rule !== b.rule ||
+     a.changed !== b.changed || a.cause !== b.cause || a.reason !== b.reason){
+    drifted++;
+    console.log("  FAIL memo drift: " + CORPUS[i][0] +
+                "\n    cold " + JSON.stringify(a) + "\n    warm " + JSON.stringify(b));
+  }
+}
+ok("repair memo: no drift across the corpus", drifted === 0, drifted + " drifted");
+
+DW.fix.clearCache();
+const fresh = CORPUS.map(c => DW.fix.repair(c[1]));
+ok("repair memo: cleared cache recomputes identically",
+   fresh.every((r, i) => r.ok === cold[i].ok && r.out === cold[i].out && r.cause === cold[i].cause));
+
+// Callers must not be able to write through into the map.
+const alias1 = DW.fix.repair(`{'a': 1}`);
+alias1.out = "TAMPERED";
+const alias2 = DW.fix.repair(`{'a': 1}`);
+ok("repair memo: hits are copies, not aliases", alias2.out === `{"a": 1}`, "got " + alias2.out);
+
+// tokenize is pure whether or not the memo is live (it is live only inside repair).
+const tk1 = DW.fix.tokenize(`{'a': "b", c: 1}`);
+const tk2 = DW.fix.tokenize(`{'a': "b", c: 1}`);
+ok("tokenize is pure", deepEq(tk1, tk2));
+
+// The failures are the entries worth caching: they burn the whole budget every
+// pass. Assert the cause survives a round trip rather than being recomputed wrong.
+DW.fix.clearCache();
+const r1 = DW.fix.repair(`{"r": "cut off`);
+const r2 = DW.fix.repair(`{"r": "cut off`);
+ok("repair memo: refusal cause cached exactly", r1.cause === "truncated" && r2.cause === "truncated" &&
+   r1.reason === r2.reason && r2.out === `{"r": "cut off`);
+
+/* ---- W28: triage's refusal is repair's refusal -------------------------- */
+//
+// The acceptance criterion, checkable without running a single search: for every
+// value, triage's verdict must agree with what repair does with it. If these two
+// ever diverge, the pane is telling you a file is hopeless while Unpack quietly
+// repairs it, or the reverse.
+
+console.log("\n=== W28 triage ===");
+
+let mismatch = 0, counted = {parses:0, refused:0, undetermined:0};
+for(const [name, src] of CORPUS){
+  const t = DW.fix.triage(src);
+  const r = DW.fix.repair(src);
+  counted[t.verdict] = (counted[t.verdict] || 0) + 1;
+
+  // `refused` must agree on the cause exactly — same verdict, same values.
+  if(t.verdict === "refused" && (r.ok || r.cause !== t.cause)){
+    mismatch++; console.log("  FAIL triage refused, repair disagreed: " + name +
+                            " (" + t.cause + " vs " + (r.ok ? "repaired" : r.cause) + ")");
+  }
+  // `parses` must be a clean pass through repair, changing nothing.
+  if(t.verdict === "parses" && !(r.ok && r.clean)){
+    mismatch++; console.log("  FAIL triage said parses, repair did not: " + name);
+  }
+  // `undetermined` is the one verdict that may go either way — but it must never
+  // be a value repair refuses outright, because that is a cause triage could have
+  // named. `unexpected` means "the search ran and found nothing", which is the
+  // one sentence triage can never truthfully say.
+  if(t.verdict === "undetermined" && !r.ok && r.cause !== "unexpected"){
+    mismatch++; console.log("  FAIL triage undetermined, repair refused up front: " +
+                            name + " (" + r.cause + ")");
+  }
+}
+ok("triage never disagrees with repair", mismatch === 0, mismatch + " mismatched");
+ok("triage exercised all three verdicts",
+   counted.parses > 0 && counted.refused > 0 && counted.undetermined > 0, JSON.stringify(counted));
+
+ok("triage verdicts are not causes", DW.fix.triage(`{"a": 1 "b": 2}`).verdict === "undetermined" &&
+   DW.fix.triage(`{"a": 1 "b": 2}`).cause === null);
+ok("triage: empty and non-string refused",
+   DW.fix.triage("").verdict === "refused" && DW.fix.triage(null).verdict === "refused");
+ok("triage costs no search", DW.fix.triage(`sorry, I can't help`).cause === "not json");
+
+/* ---- W27: the loops yield, report and stop ------------------------------ */
+
+console.log("\n=== W27 progress and cancel ===");
+
+// Enough distinct values that the loop is certain to cross the 50 ms yield
+// interval — which is the point. Yielding is time-based, not count-based, so a
+// test on a handful of cheap values would never reach a yield and would pass
+// while proving nothing.
+const N = 5000;
+const many = [];
+for(let i = 0; i < N; i++) many.push({p:`{'n': ` + i + `}`});
+const breathe = () => new Promise(r => setTimeout(r, 0));
+
+DW.fix.clearCache();
+const ticks = [];
+const full = await DW.fix.scanPath(many, "p", {
+  breathe: breathe, total: N, cancelled: () => false, tick: t => ticks.push(t)
+});
+ok("scanPath with a control still repairs everything", full.total === N && full.repaired === N,
+   full.total + "/" + full.repaired);
+ok("scanPath yielded at all", ticks.length > 0, "no ticks in " + N + " values");
+ok("scanPath reports its running tallies",
+   ticks.length > 0 && ticks[0].done > 0 && ticks[0].total === N &&
+   "parsed" in ticks[0] && "repaired" in ticks[0] && "residue" in ticks[0],
+   JSON.stringify(ticks[0]));
+ok("progress counts climb", ticks.length < 2 || ticks[ticks.length-1].done > ticks[0].done);
+
+// Cancel stops the loop and says so, rather than running to the end.
+DW.fix.clearCache();
+const stopped = await DW.fix.scanPath(many, "p", {
+  breathe: breathe, total: N, cancelled: () => true, tick: () => {}
+});
+ok("scanPath cancels", stopped.cancelled === true);
+ok("cancelled scanPath stops short", stopped.total < N, "got " + stopped.total);
+ok("cancelled scanPath keeps what it had",
+   stopped.total === stopped.parsed + stopped.repaired + stopped.residue.length);
+
+// Without a control it is the straight-line loop it has always been.
+DW.fix.clearCache();
+const plain = await DW.fix.scanPath(many, "p");
+ok("scanPath without a control is unchanged", plain.total === N && plain.cancelled === false);
+
 console.log("\n=== integration ===");
 console.log("  " + pass + "/" + (pass + fail) + " pass");
 
 const green = v8.n === v8.total && jsc.n === jsc.total && !drift.length && fail === 0;
 console.log("\n" + (green ? "ALL GREEN" : "FAILURES ABOVE"));
 process.exit(green ? 0 : 1);
+
+}

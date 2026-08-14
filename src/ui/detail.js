@@ -30,6 +30,9 @@ function renderDetail(){
   head.appendChild(badges);
   host.appendChild(head);
 
+  const triage = triageSection(node, path);
+  if(triage) host.appendChild(triage);
+
   const handling = handlingSection(node, path);
   if(handling) host.appendChild(handling);
 
@@ -158,6 +161,139 @@ function renderDetail(){
     s.appendChild(v);
     host.appendChild(s);
   }
+}
+
+/* ---------- triage and the unpack estimate (W28) ----------
+
+   The first question anyone has about a file with embedded JSON in it is not
+   "which rule fired" — it is *how much work is in here, and is clicking Unpack a
+   two-second wait or a four-minute one*. The counts come from classification
+   during the scan and are exact; the estimate is a separate, later, opt-in pass,
+   because timing needs real `repair` runs and those are the one thing that can
+   stall for seconds on a single value.
+
+   The tree row deliberately does not change. `→ embedded JSON ×59` already says
+   this path needs attention, which is all a scannable row owes you, and the type
+   cell it lives in clips at 130 px. The breakdown is one click away, here.       */
+
+const TRIAGE_LABEL = {
+  "truncated":          ["cut off mid-structure",  "upstream; the text is gone"],
+  "concatenated-roots": ["two roots concatenated",  "left unchanged by design"],
+  "not json":           ["not JSON at all",         "usually a refusal in the field"],
+  "undetermined":       ["undetermined",            "the fixer decides; most repair"],
+  "unclassified":       ["unclassified",            "classification budget ran out"],
+  "empty value":        ["empty",                   ""],
+  "not a string":       ["not a string",            ""]
+};
+
+// Ordered by what a reader acts on: the hopeless first, then the ones the fixer
+// will have a go at.
+const TRIAGE_ORDER = ["truncated", "concatenated-roots", "not json", "undetermined",
+                      "unclassified", "empty value", "not a string"];
+
+function fmtDuration(ms){
+  if(ms < 950) return Math.max(1, Math.round(ms)) + " ms";
+  const s = ms / 1000;
+  if(s < 90) return s.toFixed(s < 10 ? 1 : 0) + " s";
+  const m = s / 60;
+  if(m < 90) return m.toFixed(m < 10 ? 1 : 0) + " min";
+  return (m / 60).toFixed(1) + " h";
+}
+
+function triageSection(node, path){
+  const fails = node.inferred.get("json?") || 0;
+  if(!fails || !node.triage || !node.triage.size) return null;
+  const parsed = node.inferred.get("json") || 0;
+  const all = parsed + fails;
+
+  const s = el("div", "section");
+  s.appendChild(el("h3", null, "Embedded JSON"));
+  s.appendChild(el("div", "field-hint",
+    num(fails) + " of " + num(all) + " values do not parse"));
+
+  const list = el("div", "triage");
+  for(const k of TRIAGE_ORDER){
+    const n = node.triage.get(k);
+    if(!n) continue;
+    const lab = TRIAGE_LABEL[k] || [k, ""];
+    const r = el("div", "triage-row");
+    r.appendChild(el("span", "n", num(n)));
+    r.appendChild(el("span", "what", lab[0]));
+    if(lab[1]) r.appendChild(el("span", "why", "→ " + lab[1]));
+    list.appendChild(r);
+  }
+  s.appendChild(list);
+  s.appendChild(estimateBlock(path));
+  return s;
+}
+
+/* The estimate counts a different population from the breakdown above it, and
+   deliberately so. The breakdown is about *embedded JSON*: `infer.of` only calls a
+   value that when it opens with `{` or `[`, which is the same population the tree
+   row's `→ embedded JSON ×59` counts. Unpack, though, runs the fixer over every
+   string at the path, prose included — so the estimate walks all of them, and
+   states its own denominator rather than borrowing the one above. */
+function estimateBlock(path){
+  const box = el("div", "estimate");
+  let e = state.estimates.get(path);
+
+  // Nothing runs while the scan is provisional, matching the Unpack button, which
+  // already disables itself there.
+  if(state.provisional){
+    box.appendChild(el("div", "prov", "Unpack estimate — available once the scan finishes."));
+    return box;
+  }
+  // A "running" entry with no estimate in flight is stale: the request was
+  // superseded by something the user clicked, and its reply was dropped. Retry
+  // rather than showing "estimating…" for the rest of the session.
+  if(e === "running" && state.op !== "estimate"){
+    state.estimates.delete(path);
+    e = undefined;
+  }
+  if(e === undefined){
+    box.appendChild(el("div", "prov", requestEstimate(path) ? "estimating…" : "waiting for the current operation…"));
+    return box;
+  }
+  if(e === "running"){ box.appendChild(el("div", "prov", "estimating…")); return box; }
+  // A cancelled estimate stays cancelled. Clearing the entry instead would have the
+  // next render start it again, which is not what Cancel meant.
+  if(e === "cancelled"){ box.appendChild(el("div", "prov", "Unpack estimate cancelled.")); return box; }
+  if(e === null){ box.appendChild(el("div", "prov", "Unpack estimate unavailable.")); return box; }
+
+  // When the sample blows its own budget, that is the answer: `breathe` yields
+  // between values and never inside one, so a single huge value can consume the
+  // whole box on its own — and that value is precisely the one that dominates the
+  // real cost. Report it as a floor and lead with it, rather than smoothing it
+  // into a soft average.
+  if(e.worst){
+    const w = el("div", "prov floor");
+    w.textContent = "⚠ one value alone took " + fmtDuration(e.worst.ms) + " to search — record " +
+                    num(e.worst.i) + " · " + fmtBytes(e.worst.len);
+    box.appendChild(w);
+  }
+  box.appendChild(el("div", "big",
+    "Unpack: " + (e.stopped ? "at least " : "") + "~" + fmtDuration(e.ms)));
+  box.appendChild(el("div", "prov", (e.stopped
+    ? "sample stopped early — " + num(e.sampled)
+    : "estimated from " + num(e.sampled)) + " of " + num(e.total) + " values at this path"));
+  return box;
+}
+
+// One request per path, cached for the session. It runs in the Worker, where the
+// records live and where `scanPath` already runs, so a pathological value delays a
+// number and never the UI. Deferred while another operation holds the Worker.
+function requestEstimate(path){
+  if(state.op) return false;             // the Worker is busy; the next render retries
+  state.estimates.set(path, "running");
+  opStart("estimate");
+  session.send({c:"estimate", path:path}, function(m){
+    if(m.t === "progress"){ opProgress(m); return; }
+    opFinish();
+    if(m.t === "estimate") state.estimates.set(m.path, m);
+    else state.estimates.set(path, m.t === "cancelled" ? "cancelled" : null);
+    if(state.detailPath === path) renderDetail();
+  });
+  return true;
 }
 
 function emptyBlock(h, p){

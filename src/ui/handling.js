@@ -113,11 +113,29 @@ function collapseUnpack(path){
   render(); renderPreview(); renderDetail();
 }
 
-function doUnpack(path){
+// A recipe can name several unpacked paths, and each unpack is one Worker command
+// with one reply. Fired in a loop they overlapped: replies are matched to their
+// request now, so the losers are dropped rather than misapplied — either way the
+// paths after the first never got grafted. Chained, each one waits its turn.
+function unpackInSequence(paths){
+  if(!paths.length) return;
+  doUnpack(paths[0], function(){ unpackInSequence(paths.slice(1)); });
+}
+
+function doUnpack(path, done){
   status("expStatus", "warn", "Repairing and unpacking <code>" + esc(path) + "</code>…");
   show("expStatus");
+  opStart("unpack");
   session.send({c:"unpack", path:path}, function(m){
+    if(m.t === "progress"){ opProgress(m); return; }
+    opFinish();
     if(m.t === "fail"){ status("expStatus", "err", esc(m.msg)); return; }
+    // Cancel leaves state exactly as it was: the graft is the last thing unpack
+    // does, and a cancelled unpack never reaches it. The records are untouched.
+    if(m.t === "cancelled"){
+      status("expStatus", "warn", "Cancelled — <code>" + esc(path) + "</code> is unchanged and the file is still loaded.");
+      return;
+    }
     state.unpacked.add(path);
     state.model = m.model;
     state.warnings = m.warnings || state.warnings;
@@ -127,6 +145,7 @@ function doUnpack(path){
     status("expStatus", "ok", num(m.parsed) + " parsed cleanly · " + num(m.repaired) + " repaired · " +
       num(m.residue.length) + " residue");
     render(); renderWarnings(); renderExplodeOptions(); renderPreview(); renderDetail();
+    if(done) done();
   });
 }
 

@@ -1,11 +1,78 @@
 /* ---------- help and changelog (W23) ---------- */
 
-const VERSION = "1.2.3";
+const VERSION = "1.4.0";
 
 // W1 forbids runtime network requests and `file://` blocks fetch regardless, so the
 // changelog ships inside the page. It is the *text of* changelog.md, verbatim — the
 // two are kept in step by paste, which is what stops the in-app copy drifting.
 const CHANGELOG_MD = `
+## v1.4.0
+
+Before you click Unpack, the tool tells you what is in the file and how long it will take.
+
+- **A path's detail pane now breaks down what does not parse, and why.** \`59 of 1,000
+  values do not parse\` was the whole story until now — true, and no help in deciding what
+  to do about it. The pane splits that number by cause: \`31 cut off mid-structure\` is
+  damage upstream and the text is gone, \`1 not JSON at all\` is usually a refusal that
+  landed in the field, and \`27 undetermined\` is the fixer's call, most of which repair.
+  The counts are exact and cost nothing extra — the scan already parses these values, so
+  classifying the failures is one extra walk over text it has in hand, capped so a file
+  where every record is broken cannot slow the scan down.
+- **And an estimate: \`Unpack: ~11 s\`.** Timing needs real repair runs, so it does not
+  happen during the scan — it runs when you open the pane, in the background, and fills
+  in. Clean and broken values are timed separately because they differ in cost by orders
+  of magnitude, and the sample is spread across the length range on purpose: a sample
+  that misses the one 218 KB value in a path of short ones is wrong by tenfold.
+- **When one value alone eats the sample, that is the answer, and it says so.** Rather
+  than averaging a four-second value into a soothing number, the pane leads with it —
+  \`⚠ one value alone took 4.2 s to search · record 412 · 218 KB\` — and reports the total
+  as a floor: \`Unpack: at least ~2 min\`. The sample size is always on screen, because a
+  figure whose provenance is invisible is a figure nobody can discount.
+- **The tree row is unchanged.** \`→ embedded JSON ×59\` already tells you a path needs
+  attention, which is all a row you are scanning owes you. The breakdown is one click
+  away, in the pane that exists for exactly that.
+
+## v1.3.0
+
+Unpacking and exporting a heavily-embedded file stop being a wait with nothing to look at.
+
+- **The fixer no longer re-tokenises text it has already read.** The search revisits the
+  same text repeatedly — candidates come off the original as well as the fixpoint, and
+  every rule tokenises independently — so the bounded search was doing far more work than
+  its budget suggested. The budget counts search *nodes*; each node costs up to 39
+  tokenisations of the whole value, which put the real ceiling near 15,600. Measured on an
+  18 KB value: **3,311 \`tokenize\` calls over 61.6 million characters, cut to 404 calls over
+  7.5 million** — about 8× less work for the same result. In the browser that is **395 ms
+  down to 113 ms** on one 18 KB value the fixer cannot repair, which is the case that
+  dominates real cost. \`tokenize\` is a pure function, so this changes no repair, no rule
+  name and no residue cause; the test suite is green across both simulated engines before
+  and after, and now replays the whole corpus through a cold cache and a warm one to prove
+  the two agree field for field.
+- **A value is repaired once, not three times.** Unpack repaired every value and threw the
+  results away; the preview re-repaired the first 200 on every checkbox tick; export
+  repaired everything again. \`DW.fix\` now keeps repaired text — capped at 50 M characters
+  and cleared when a new file is scanned. Values that *cannot* be repaired are cached too,
+  and they matter most: each one burned the entire search budget on every pass to produce a
+  result the pipeline discarded. Export after an unpack no longer repairs anything at all:
+  the same 18 KB value costs **1,150 ms across its three passes, down to 117 ms**.
+- **Unpack, residue, merge and export report progress and can be cancelled.** All four were
+  a single synchronous call that returned one message when it was done; only scan had a
+  progress bar or a Cancel. Unpack now reports a live count with its running tallies —
+  \`312 of 436 · 51 clean · 208 repaired · 53 residue\` — rather than a percentage, because
+  value costs span four orders of magnitude and a percentage bar would sit still and read
+  as a hang.
+- **One Cancel, always in the same place.** It used to live in the intake panel and appear
+  only during a scan, which is not where you are standing when an unpack is running. It is
+  now a single control present whenever any operation is in flight. **Cancelling never
+  discards the loaded file** — cancel during an unpack or export leaves your records exactly
+  where they are. Cancelling a merge leaves its repaired values merged with the path not yet
+  unpacked, and says so instead of implying nothing happened.
+- **Fixed: loading a recipe that unpacked more than one path.** The unpacks were fired in a
+  loop at a session that carries one command at a time, so their results arrived out of step
+  and landed in each other's handlers — the second and later paths were grafted with the
+  wrong data. Replies are now matched to the request that asked for them, and a recipe's
+  unpacks run one after another.
+
 ## v1.2.3
 
 Ticking a checkbox no longer stalls the page.

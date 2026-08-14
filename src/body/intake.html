@@ -50,7 +50,8 @@
 
       <div class="option-row" style="margin-top:16px">
         <button class="btn btn-primary" id="run" disabled>Scan</button>
-        <button class="btn btn-secondary hidden" id="cancel">Cancel</button>
+        <!-- Cancel moved out of this panel in v1.3.0: it is one global control now,
+             reachable from wherever the operation was started (W27). -->
         <span class="field-hint" id="detected" style="margin:0"></span>
       </div>
 

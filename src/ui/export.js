@@ -65,6 +65,7 @@ $("exportBtn").addEventListener("click", function(){
   $("expPct").textContent = "";
   $("expPhase").textContent = "Exporting…";
   hide("expStatus");
+  opStart("export");
   const t0 = Date.now();
   session.send({c:"export", opts:opts}, function(m){
     if(m.t === "progress"){
@@ -72,11 +73,19 @@ $("exportBtn").addEventListener("click", function(){
       $("expFill").style.width = p + "%";
       $("expPct").textContent = p + "%";
       $("expPhase").textContent = "Exporting… " + num(m.rows) + " rows";
+      opProgress(m);
       return;
     }
     $("exportBtn").disabled = false;
     hide("expProgress");
+    opFinish();
     if(m.t === "fail"){ status("expStatus", "err", esc(m.msg)); show("expStatus"); return; }
+    // Nothing was written and nothing was lost — the records are still loaded.
+    if(m.t === "cancelled"){
+      status("expStatus", "warn", "Export cancelled — no file written. The scanned file is still loaded.");
+      show("expStatus");
+      return;
+    }
     if(m.t === "blob"){
       const ext = opts.format === "csv" ? ".csv" : ".jsonl";
       download(m.blob, state.label + "_extract" + ext);

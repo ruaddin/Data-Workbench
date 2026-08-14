@@ -69,7 +69,10 @@ function openResidue(path){
 $("residueClose").addEventListener("click", function(){ $("residueDlg").close(); });
 $("residueDl").addEventListener("click", function(){
   const path = state.residue.path;
+  opStart("residue");
   session.send({c:"residue", path:path}, function(m){
+    if(m.t === "progress"){ opProgress(m); return; }
+    opFinish();
     if(m.t === "blob") download(m.blob, "residue_" + path.replace(/[^\w.-]+/g, "_") + ".jsonl");
   });
 });
@@ -85,8 +88,24 @@ $("residueApply").addEventListener("click", function(){
 // Merge on record index + path. The returned values are validated before merge:
 // anything that does not parse is counted as missed and left untouched.
 function applyFixed(path, fixed){
+  opStart("merge");
   session.send({c:"merge", path:path, fixed:fixed}, function(m){
+    if(m.t === "progress"){ opProgress(m); return; }
+    opFinish();
     if(m.t === "fail"){ status("expStatus", "err", esc(m.msg)); show("expStatus"); return; }
+    // W27's one exception to "cancel leaves state as it was". Merge writes the
+    // repaired values into records *before* it re-unpacks, so cancelling leaves
+    // them merged with the path not unpacked. Say that, rather than implying
+    // nothing happened — it is recoverable by unpacking again.
+    if(m.t === "cancelled"){
+      state.unpacked.delete(path);
+      status("expStatus", "warn", num(m.matched) + " value" + (m.matched === 1 ? "" : "s") +
+        " merged before you cancelled, and they are still merged — but <code>" + esc(path) +
+        "</code> is no longer unpacked. Unpack it again to pick the structure back up.");
+      show("expStatus");
+      render(); renderDetail();
+      return;
+    }
     state.model = m.model;
     state.warnings = m.warnings || state.warnings;
     state.unpackInfo.set(path, {total:m.total, parsed:m.parsed, repaired:m.repaired,

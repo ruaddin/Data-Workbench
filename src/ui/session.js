@@ -8,7 +8,7 @@
    ========================================================================== */
 
 const session = (function(){
-  let worker = null, url = null, pending = null, lastMsg = null, heard = false;
+  let worker = null, url = null, pending = null, lastMsg = null, heard = false, seq = 0;
   let local = false;        // no Worker available at all — file:// blob restriction
   let dataOnMain = false;   // this dataset's records live on the main thread
 
@@ -43,10 +43,14 @@ const session = (function(){
         if(res){ res.t = "done"; cb(res); } else cb({t:"cancelled"});
         return;
       }
-      if(msg.c === "unpack"){ cb(DW.engine.unpack(msg.path)); return; }
-      if(msg.c === "residue"){ cb(DW.engine.residue(msg.path)); return; }
-      if(msg.c === "merge"){ cb(DW.engine.merge(msg.path, msg.fixed)); return; }
-      if(msg.c === "export"){ cb(DW.engine.exportData(msg.opts, cb)); return; }
+      // The same awaits as the Worker shim. Here they buy a responsive UI rather
+      // than a deliverable message — the loops are on the main thread, so without
+      // them the page would lock for the whole operation (W27).
+      if(msg.c === "unpack"){ cb(await DW.engine.unpack(msg.path, cb)); return; }
+      if(msg.c === "residue"){ cb(await DW.engine.residue(msg.path, cb)); return; }
+      if(msg.c === "merge"){ cb(await DW.engine.merge(msg.path, msg.fixed, cb)); return; }
+      if(msg.c === "export"){ cb(await DW.engine.exportData(msg.opts, cb)); return; }
+      if(msg.c === "estimate"){ cb(await DW.engine.estimate(msg.path, cb)); return; }
     }catch(err){ cb({t:"fail", msg:(err && err.message) ? err.message : String(err)}); }
   }
 
@@ -73,20 +77,50 @@ const session = (function(){
     // need DOMParser and js-yaml, which it has not got. Every later command for
     // that dataset follows its records to the main thread — and the next scan of
     // a line-oriented file gets the Worker back.
+    //
+    // Every command also carries a sequence number the Worker stamps onto each
+    // reply, and a reply for a superseded command is dropped. Until v1.3.0 there
+    // was one `pending` callback and nothing checked whose reply it was, which was
+    // safe only because every command was started by a click. The W28 estimate is
+    // not — it fires when a detail pane opens — so a late reply from it could
+    // otherwise land in the handler for whatever the user started next.
     send(msg, cb){
-      pending = cb;
+      const id = ++seq;
+      // An estimate starts on its own when a detail pane opens, so it can still be
+      // running when the user clicks Unpack or Export. Get it out of the Worker's
+      // way rather than making the click queue behind it. Harmless if it already
+      // finished: every command clears the cancel flag as it starts.
+      if(lastMsg && lastMsg.c === "estimate"){
+        DW.engine.cancel();
+        if(worker) worker.postMessage({c:"cancel"});
+      }
+      msg.id = id;
       lastMsg = msg;
+      pending = function(m){ if(m.id !== undefined && m.id !== id) return; cb(m); };
+      const stamp = function(m){ if(m.id === undefined) m.id = id; pending(m); };
       if(msg.c === "scan") dataOnMain = !!WHOLE_DOC[msg.format] || typeof msg.source === "string";
-      if(local || dataOnMain){ runLocal(msg, cb); return; }
+      if(local || dataOnMain){ runLocal(msg, stamp); return; }
       const w = ensure();
-      if(!w){ runLocal(msg, cb); return; }
+      if(!w){ runLocal(msg, stamp); return; }
       w.postMessage(msg);
     },
 
+    // Cancel cannot mean one action (W27). `terminate()` is right for a scan,
+    // where nothing is loaded yet and destroying the Worker costs nothing. It is
+    // catastrophic for an unpack or an export, where it would destroy the records
+    // and force a re-scan of the whole file. Everything else is cancelled by
+    // message, which the Worker can now receive because its loops yield.
+    //
+    // Invariant: cancelling never discards loaded records.
     cancel(){
-      DW.engine.cancel();
-      if(worker){ worker.terminate(); worker = null; heard = false;
-                  if(url){ URL.revokeObjectURL(url); url = null; } }
+      DW.engine.cancel();               // the local path, and the shim's own engine
+      const running = lastMsg && lastMsg.c;
+      if(running === "scan" || !running){
+        if(worker){ worker.terminate(); worker = null; heard = false;
+                    if(url){ URL.revokeObjectURL(url); url = null; } }
+        return;
+      }
+      if(worker) worker.postMessage({c:"cancel"});
     }
   };
 })();

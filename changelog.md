@@ -14,6 +14,16 @@
 > dialog. When you edit here, paste the result there too — the inlined copy is the
 > one users read.
 
+## v1.5.2
+
+The page header lines up with the panel under it.
+
+- **The intro paragraph runs the full width of the page.** It was capped at 640px while
+  everything below it — the intake panel, the workspace, the export block — runs out to
+  the edge of the main column. One line of prose stopping short of every box beneath it
+  read as a ragged corner rather than as a measure someone chose. The cap is gone; the
+  header now ends where the panels end.
+
 ## v1.5.1
 
 The rail says what its icons are.

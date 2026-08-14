@@ -151,9 +151,17 @@ function scalarWord(v){ return NUMERIC.test(v) || has(LITERAL, v) || has(PY, v);
    classify residue.
    ========================================================================== */
 
+/* `end`, `open` and `want` are additive (W29). `pos` and `cause` are byte-identical
+   to what triage has always read; the three extra fields exist so the case viewer
+   can paint a *span* rather than a caret, and caption it. `end` closes the
+   offending token. `open` is the offset of the innermost opener still on the stack
+   when the text ran out — the only useful mark for a truncated value, whose `pos`
+   is one past the last character and would paint nothing; it is -1 wherever no
+   opener is implicated. `want` is the state the walk was in, which is what lets the
+   caption say *expected a key* rather than only *stopped here*. */
 function validate(text){
   const T = nonComment(tokenize(text));
-  if(!T.length) return {pos:0, cause:"not json"};
+  if(!T.length) return {pos:0, cause:"not json", end:0, open:-1};
 
   // A root bare word that is not a scalar is prose — but only when there is no
   // object or array anywhere in the value. A fenced block opens on ```json and a
@@ -163,36 +171,39 @@ function validate(text){
   if(rootIsWord){
     let structural = false;
     for(const t of T) if(t.t === "p" && (t.v === "{" || t.v === "[")){ structural = true; break; }
-    if(!structural) return {pos:T[0].s, cause:"not json"};
+    if(!structural) return {pos:T[0].s, cause:"not json", end:T[0].e, open:-1};
   }
 
-  const stack = [];
+  const stack = [], opens = [];
   let st = "value";
   for(let i = 0; i < T.length; i++){
     const t = T[i];
-    if(t.t === "s" && !t.closed) return {pos:t.s, cause:"truncated"};
+    // An unterminated string: `pos` is its opening quote and there is no opener to
+    // report, which is what tells the viewer to paint quote-to-end rather than one
+    // character.
+    if(t.t === "s" && !t.closed) return {pos:t.s, cause:"truncated", end:text.length, open:-1};
     const top = stack[stack.length - 1];
 
     if(st === "value"){
-      if(t.t === "p" && t.v === "["){ stack.push("arr"); st = "value"; continue; }
-      if(t.t === "p" && t.v === "{"){ stack.push("obj"); st = "key"; continue; }
-      if(t.t === "p" && t.v === "]" && top === "arr"){ stack.pop(); st = "comma"; continue; }
+      if(t.t === "p" && t.v === "["){ stack.push("arr"); opens.push(t.s); st = "value"; continue; }
+      if(t.t === "p" && t.v === "{"){ stack.push("obj"); opens.push(t.s); st = "key"; continue; }
+      if(t.t === "p" && t.v === "]" && top === "arr"){ stack.pop(); opens.pop(); st = "comma"; continue; }
       if(t.t === "s" || t.t === "w"){ st = "comma"; continue; }
-      return {pos:t.s, cause:"unexpected"};
+      return {pos:t.s, cause:"unexpected", end:t.e, open:-1, want:st};
     }
     if(st === "key"){
-      if(t.t === "p" && t.v === "}" && top === "obj"){ stack.pop(); st = "comma"; continue; }
+      if(t.t === "p" && t.v === "}" && top === "obj"){ stack.pop(); opens.pop(); st = "comma"; continue; }
       if(t.t === "s" || t.t === "w"){ st = "colon"; continue; }
-      return {pos:t.s, cause:"unexpected"};
+      return {pos:t.s, cause:"unexpected", end:t.e, open:-1, want:st};
     }
     if(st === "colon"){
       if(t.t === "p" && (t.v === ":" || t.v === "=")){ st = "value"; continue; }
-      return {pos:t.s, cause:"unexpected"};
+      return {pos:t.s, cause:"unexpected", end:t.e, open:-1, want:st};
     }
     // st === "comma": a value just completed
     if(t.t === "p" && t.v === ","){ st = top === "obj" ? "key" : "value"; continue; }
-    if(t.t === "p" && t.v === "}" && top === "obj"){ stack.pop(); st = "comma"; continue; }
-    if(t.t === "p" && t.v === "]" && top === "arr"){ stack.pop(); st = "comma"; continue; }
+    if(t.t === "p" && t.v === "}" && top === "obj"){ stack.pop(); opens.pop(); st = "comma"; continue; }
+    if(t.t === "p" && t.v === "]" && top === "arr"){ stack.pop(); opens.pop(); st = "comma"; continue; }
     if(!stack.length){
       // The root value is complete and there is more text. Another root is the
       // spec's leave-unchanged case; a trailing bare word is a model signing off.
@@ -201,12 +212,15 @@ function validate(text){
       // second root.
       const more = (t.t === "p" && (t.v === "{" || t.v === "[")) || t.t === "s" ||
                    (t.t === "w" && scalarWord(t.v));
-      return {pos:t.s, cause: (more && !rootIsWord) ? "concatenated-roots" : "unexpected"};
+      return {pos:t.s, cause: (more && !rootIsWord) ? "concatenated-roots" : "unexpected",
+              end:t.e, open:-1};
     }
-    return {pos:t.s, cause:"unexpected"};
+    return {pos:t.s, cause:"unexpected", end:t.e, open:-1, want:st};
   }
-  if(stack.length || st !== "comma") return {pos:text.length, cause:"truncated"};
-  return {pos:-1, cause:null};
+  if(stack.length || st !== "comma")
+    return {pos:text.length, cause:"truncated", end:text.length,
+            open: opens.length ? opens[opens.length - 1] : -1};
+  return {pos:-1, cause:null, end:-1, open:-1};
 }
 
 const CAUSE_TEXT = {
@@ -242,8 +256,10 @@ const REFUSE = {"truncated":1, "concatenated-roots":1, "not json":1};
 // no second traversal.
 function triageTrimmed(trimmed){
   const v = validate(trimmed);
-  if(REFUSE[v.cause]) return {verdict:"refused", cause:v.cause};
-  return {verdict:"undetermined", cause:null};
+  // pos / end / open ride along for W29's failure mark; the two fields triage
+  // itself reads are unchanged.
+  if(REFUSE[v.cause]) return {verdict:"refused", cause:v.cause, pos:v.pos, end:v.end, open:v.open, want:v.want};
+  return {verdict:"undetermined", cause:null, pos:v.pos, end:v.end, open:v.open, want:v.want};
 }
 
 function triage(text){
@@ -681,7 +697,8 @@ function clearCache(){ repairMemo.clear(); memoChars = 0; }
 
 function repair(text){
   if(typeof text !== "string")
-    return {ok:false, out:text, rule:null, changed:0, reason:"not a string", cause:"not a string"};
+    return {ok:false, out:text, rule:null, changed:0, reason:"not a string", cause:"not a string",
+            pos:-1, end:-1, open:-1};
 
   const hit = repairMemo.get(text);
   // A shallow copy, so a caller that annotates its result can never write through
@@ -699,10 +716,22 @@ function repair(text){
   return Object.assign({}, res);
 }
 
+/* Offsets from `validate` index into the *trimmed* text, and every failure hands
+   back the *original* — which is what the viewer paints. Shifting by the leading
+   whitespace is what keeps the mark on the character it names (W29). */
+function shift(v, off){
+  return {pos: v.pos >= 0 ? v.pos + off : -1,
+          end: v.end >= 0 ? v.end + off : -1,
+          open: v.open >= 0 ? v.open + off : -1,
+          want: v.want || null};
+}
+
 function repairUncached(text){
   const trimmed = text.trim();
+  const off = text.length - text.trimStart().length;
   if(trimmed === "")
-    return {ok:false, out:text, rule:null, changed:0, reason:"empty value", cause:"empty value"};
+    return {ok:false, out:text, rule:null, changed:0, reason:"empty value", cause:"empty value",
+            pos:-1, end:-1, open:-1};
   if(parses(trimmed))
     return {ok:true, out:trimmed, rule:null, changed:0, reason:null, cause:null, clean:true};
 
@@ -711,7 +740,8 @@ function repairUncached(text){
   // identical call `triage` makes (W28) — one refusal path, not two.
   const v = triageTrimmed(trimmed);
   if(v.verdict === "refused")
-    return {ok:false, out:text, rule:null, changed:0, reason:CAUSE_TEXT[v.cause], cause:v.cause};
+    return Object.assign({ok:false, out:text, rule:null, changed:0,
+                          reason:CAUSE_TEXT[v.cause], cause:v.cause}, shift(v, off));
 
   const found = [];
   tokMemo = new Map();
@@ -729,9 +759,12 @@ function repairUncached(text){
     return {ok:true, out:found[0].out, rule:found[0].rule,
             changed:changedChars(trimmed, found[0].out), reason:null, cause:null};
   }
-  // Exhausted: hand back the input byte-identical, with the cause.
+  // Exhausted: hand back the input byte-identical, with the cause. The position
+  // is the one `validate` already found; it is -1 when the token stream walked
+  // fine and JSON.parse refused for a reason no offset describes.
   const cause = "unexpected";
-  return {ok:false, out:text, rule:null, changed:0, reason:CAUSE_TEXT[cause], cause:cause};
+  return Object.assign({ok:false, out:text, rule:null, changed:0,
+                        reason:CAUSE_TEXT[cause], cause:cause}, shift(v, off));
 }
 
 /* Yield interval for the fixer's loops (W27). Time-based, not count-based: the

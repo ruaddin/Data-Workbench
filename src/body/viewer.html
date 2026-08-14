@@ -1,0 +1,29 @@
+    <!-- ============================ case viewer (W29) ============================
+         One record at a time, every selected path, at full length. Every other
+         surface in the tool answers a question about the *file*; this one answers
+         "what does this record contain?", which is the question you actually ask
+         when something looks wrong. It takes the whole width because the field you
+         opened it for is the 4 KB one Preview truncates.
+         ========================================================================= -->
+    <section class="panel viewer hidden" id="viewer" aria-label="Case viewer">
+      <div class="viewer-bar">
+        <button class="btn-sm" id="caseBack" aria-label="Back to the report">← Report</button>
+        <span class="viewer-sep"></span>
+        <button class="btn-sm" id="casePrev" aria-label="Previous case (Alt+Left)">‹</button>
+        <span class="case-nav">
+          case
+          <input class="input case-num" id="caseNum" type="text" inputmode="numeric"
+                 spellcheck="false" aria-label="Go to case number">
+          <span id="caseTotal"></span>
+        </span>
+        <button class="btn-sm" id="caseNext" aria-label="Next case (Alt+Right)">›</button>
+        <span class="grow"></span>
+        <span class="viewer-hint">Alt + ← →</span>
+        <button class="btn-sm" id="caseCollapse">Collapse all</button>
+      </div>
+      <!-- W20's consequence, made visible where it bites: the leak surface was a
+           200-character cell in a side pane and is now a full-width page. -->
+      <div class="viewer-notice hidden" id="caseRedact">redact is on · this view is not redacted</div>
+      <div class="viewer-body" id="caseBody"></div>
+    </section>
+

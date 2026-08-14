@@ -6,6 +6,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- W29 — the zero-network guarantee, browser-enforced rather than promised.
+     Rendering markdown means turning untrusted model output into a page, and a
+     stray `![](https://cdn/…)` in someone's data fires a request merely by being
+     displayed. DOMPurify's strict configuration narrows what gets constructed;
+     this bounds what any escape could do. `connect-src` and `img-src` collapse to
+     `default-src 'none'`, so even an inline handler that fires — and one *can*,
+     since the tool's own inline scripts force 'unsafe-inline' — reaches nothing.
+     `blob:` is load-bearing on both directives: DW.session builds its Worker from
+     a Blob URL, and getting either wrong breaks scanning on file://. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; worker-src blob:; img-src data:;">
 <title>Data Workbench</title>
 <!-- No web-font <link>: the spec's zero-network guarantee (W1) outranks the house
      font stack. 'Work Sans' / 'JetBrains Mono' are still named first so the tool
@@ -15,6 +25,7 @@
 <!--@@ css/shell.css @@-->
 <!--@@ css/intake.css @@-->
 <!--@@ css/workspace.css @@-->
+<!--@@ css/viewer.css @@-->
 <!--@@ css/chrome.css @@-->
 </style>
 </head>
@@ -23,6 +34,7 @@
 <!--@@ body/intake.html @@-->
 <!--@@ body/summary.html @@-->
 <!--@@ body/workspace.html @@-->
+<!--@@ body/viewer.html @@-->
 <!--@@ body/export.html @@-->
 <!-- ==========================================================================
      dw-core — detection, readers, inference, skeleton, fixer, pipeline, engine.
@@ -76,6 +88,7 @@ return {
 <!--@@ ui/handling.js @@-->
 <!--@@ ui/views.js @@-->
 <!--@@ ui/detail.js @@-->
+<!--@@ ui/viewer.js @@-->
 <!--@@ ui/preview.js @@-->
 <!--@@ ui/export.js @@-->
 <!--@@ ui/residue.js @@-->
@@ -89,13 +102,30 @@ DW.ui = {state:state, render:render, run:run, session:session, emitters:emitters
 </script>
 
 <!-- ==========================================================================
-     Vendored js-yaml 4.1.0 (MIT), unmodified. The only third-party code in the
-     file, and no new dependency is added by the merge. It sits last so the
-     readable code stays at the top; nothing above runs at parse time, and the
-     YAML reader only dereferences `jsyaml` when called.
+     Vendored third-party code, all unmodified, all at the bottom so the readable
+     code stays at the top. Nothing here runs at parse time beyond defining its
+     global, and every consumer dereferences it only when called.
+
+       js-yaml 4.1.0 (MIT)     — the YAML reader.
+       marked 4.3.0 (MIT)      — W29's markdown rendering in the case viewer.
+       DOMPurify 3.2.4 (Apache-2.0 / MPL-2.0)
+                               — sanitizes what `marked` emits. It is not
+                                 optional: the values rendered are untrusted model
+                                 output, which is the tool's entire subject.
+
+     marked and DOMPurify are the only dependencies the tool has ever added beyond
+     the merge, and §12 of the spec says what they bought. KaTeX (~694 KB inlined,
+     3.4× the whole file) and highlight.js (124 KB) were refused permanently on the
+     ground that already refused SheetJS: W1 inlines every byte.
      ========================================================================== -->
 <script id="js-yaml">
 <!--@@ vendor/js-yaml.min.js @@-->
+</script>
+<script id="marked">
+<!--@@ vendor/marked.min.js @@-->
+</script>
+<script id="dompurify">
+<!--@@ vendor/purify.min.js @@-->
 </script>
 </body>
 </html>

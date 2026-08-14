@@ -19,11 +19,13 @@ function opStart(op, text){
   state.op = op;
   $("opText").textContent = text || (OP_LABEL[op] || "Working") + "…";
   show("opBar");
+  paintViewBtn();          // W29 — a case fetch queued behind an export is not fast
 }
 
 function opEnd(){
   state.op = null;
   hide("opBar");
+  paintViewBtn();
 }
 
 // The three tallies are the ones already reported when an unpack finishes — shown

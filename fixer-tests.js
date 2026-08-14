@@ -386,6 +386,94 @@ DW.fix.clearCache();
 const plain = await DW.fix.scanPath(many, "p");
 ok("scanPath without a control is unchanged", plain.total === N && plain.cancelled === false);
 
+/* ---- W29: one record, and where the parse stopped ----------------------- */
+//
+// Two claims worth a test rather than a reading. `caseAt` must be `buildRow` and
+// *nothing after it*: the whole design of the case viewer rests on that, and a
+// transform leaking in would be invisible on screen — the value would simply look
+// slightly different from the file, which is the one thing a fidelity tool must not
+// do. And `validate`'s three new fields must be additive: triage calls the same
+// function, so a changed `pos` or `cause` would silently re-classify residue.
+
+console.log("\n=== W29 case viewer ===");
+
+const CASES = [
+  {id:"a", note:"one\ntwo", blob:`{"rubric":[{"n":"x"},{"n":"y"}]}`, meta:{k:1, deep:{z:2}}},
+  {id:"b", note:"plain",    blob:`{{"key": "value"}`,                 meta:{k:2, deep:{z:3}}}
+];
+const caseSel = ["id", "note", "blob", "meta.k", "meta.deep.z"];
+const caseOpts = {selected:caseSel, unpacked:[], pretty:[], whole:[], format:"jsonl"};
+
+const c0 = DW.pipeline.caseAt(CASES, caseOpts, 0);
+ok("caseAt columns are the plan's", deepEq(c0.columns, caseSel), JSON.stringify(c0.columns));
+ok("caseAt projects the record", c0.row["meta.deep.z"] === 2 && c0.row.id === "a",
+   JSON.stringify(c0.row));
+ok("caseAt leaves embedded JSON a string", typeof c0.row.blob === "string");
+ok("caseAt out of range is null",
+   DW.pipeline.caseAt(CASES, caseOpts, 2) === null && DW.pipeline.caseAt(CASES, caseOpts, -1) === null);
+
+// The load-bearing one. Every transform on at once; the row must not move.
+const loud = Object.assign({}, caseOpts, {
+  flatten:true, split:true, splitCap:2, splitStyle:"num",
+  lineBreaks:"drop", pretty:["blob"], format:"csv"
+});
+ok("caseAt runs no transform", deepEq(DW.pipeline.caseAt(CASES, loud, 0).row, c0.row),
+   JSON.stringify(DW.pipeline.caseAt(CASES, loud, 0).row));
+ok("caseAt keeps line breaks", DW.pipeline.caseAt(CASES, loud, 0).row.note === "one\ntwo");
+
+// Explode is ignored: a case is a record, not an exploded unit. Preview over the
+// same options yields one row per element; caseAt yields the record, projected.
+const expOpts = Object.assign({}, caseOpts, {explode:"meta"});
+ok("caseAt ignores explode",
+   deepEq(DW.pipeline.caseAt(CASES, expOpts, 1).row, DW.pipeline.caseAt(CASES, caseOpts, 1).row));
+
+// It is the same projection Preview shows with the transforms off, which is what
+// stops the two surfaces disagreeing about one field.
+const bare = DW.pipeline.preview(CASES, caseOpts, 10, null);
+ok("caseAt agrees with preview", deepEq(DW.pipeline.caseAt(CASES, caseOpts, 1).row, bare.rows[1]),
+   JSON.stringify(bare.rows[1]));
+
+// Unpacking and W21 packaging are what a *record* is, so both must survive.
+const upk = DW.pipeline.caseAt(CASES,
+  {selected:["blob.rubric.[].n"], unpacked:["blob"], format:"jsonl"}, 0);
+ok("caseAt honours unpacked", deepEq(upk.row["blob.rubric.[].n"], ["x", "y"]),
+   JSON.stringify(upk.row));
+const whl = DW.pipeline.caseAt(CASES,
+  {selected:["meta", "meta.k"], whole:["meta"], format:"jsonl"}, 0);
+ok("caseAt honours keep-whole", deepEq(whl.row.meta, {k:1}), JSON.stringify(whl.row));
+
+// `validate`'s additive fields.
+const vTrunc = DW.fix.validate(`{"rubric":[{"n":"z"`);
+ok("truncated at EOF reports pos past the end", vTrunc.cause === "truncated" && vTrunc.pos === 19);
+ok("truncated at EOF names the innermost opener",
+   vTrunc.open === 11 && `{"rubric":[{"n":"z"`[vTrunc.open] === "{", "open=" + vTrunc.open);
+
+const vStr = DW.fix.validate(`{"r": "cut off`);
+ok("unclosed string marks the quote, not an opener",
+   vStr.cause === "truncated" && vStr.open === -1 && `{"r": "cut off`[vStr.pos] === '"',
+   JSON.stringify(vStr));
+
+const vUnexp = DW.fix.validate(`{{"key": "value"}`);
+ok("unexpected reports the second brace, a span and the state",
+   vUnexp.cause === "unexpected" && vUnexp.pos === 1 && vUnexp.end === 2 && vUnexp.want === "key",
+   JSON.stringify(vUnexp));
+
+const vClean = DW.fix.validate(`{"a": 1}`);
+ok("a value that walks reports no position", vClean.cause === null && vClean.pos === -1 &&
+   vClean.open === -1);
+
+// Offsets come back indexing the string the caller holds, not the trimmed copy.
+// (`{{"key": "value"}` is not the example to use here: the search peels the brace
+// and repairs it, which is the right answer and leaves nothing to point at.)
+const padded = `\n\n  {"a":1}{"b":2}`;
+const rPad = DW.fix.repair(padded);
+ok("repair surfaces a shifted position",
+   rPad.ok === false && rPad.pos === 11 && padded[rPad.pos] === "{", "pos=" + rPad.pos);
+ok("repair surfaces the cause it refused on", rPad.cause === "concatenated-roots");
+const rTrunc = DW.fix.repair(`  {"r": "cut off`);
+ok("a refused value carries its position too",
+   rTrunc.cause === "truncated" && rTrunc.pos === 8, "pos=" + rTrunc.pos);
+
 console.log("\n=== integration ===");
 console.log("  " + pass + "/" + (pass + fail) + " pass");
 

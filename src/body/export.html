@@ -85,6 +85,13 @@
         <li><strong>ID-keyed objects collapse</strong> past the map-keys threshold into <code>{*}</code>.
             A map's keys are data, so <code>{*}</code> is tickable, projects as an object keyed by the map key,
             and can be exploded.</li>
+        <li><strong>To read one record, use the case viewer</strong> — the ▤ button in the rail. The tree,
+            Stats and Preview all answer questions about the <em>file</em>; the viewer answers
+            <em>what does this record contain</em>, one section per selected path, at full length and
+            across every record rather than the first 200. Embedded JSON that parses is drawn as a
+            table; where it does not parse, the viewer marks where parsing stopped and offers a
+            <em>Repair for display</em> that changes nothing in your data. Chips name every
+            interpretation it applied — a section with no chips is the value verbatim.</li>
         <li><strong>Per-path handling lives in Path detail.</strong> Click any row: the right pane opens on that
             path with a <em>Handling</em> block carrying <em>Keep whole — one column</em>,
             <em>Unpack into child paths</em> and <em>Pretty-print on export</em>, each with what it does written

@@ -1,0 +1,143 @@
+/* ---------- case viewer (W29) ----------
+   The section is the unit, and the point of the layout is that the *size of a
+   value determines the space it gets*: a two-column key/value table and a
+   devtools JSON tree both render the 4 KB field on one truncated line, which is
+   the field the screen exists for. */
+.viewer{padding:0;overflow:hidden}
+.viewer-bar{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surface-2);
+}
+.viewer-bar .grow{flex:1}
+.viewer-sep{width:1px;height:20px;background:var(--border)}
+.viewer-hint{font-size:11px;color:var(--text-4);font-family:var(--font-mono)}
+.case-nav{
+  display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2);
+  font-variant-numeric:tabular-nums;
+}
+/* `case 7 / 9,981 records` carries the word *records* because with explode on the
+   viewer's count and the export's row count are different numbers, and the two
+   must never read as one quantity measured twice. */
+.case-nav #caseTotal{font-family:var(--font-mono);color:var(--text-3)}
+.case-num{width:88px;text-align:right;font-family:var(--font-mono);font-size:12px;padding:4px 6px}
+.viewer-notice{
+  padding:8px 16px;font-size:12px;color:var(--red);background:var(--red-tint);
+  border-bottom:1px solid var(--border);
+}
+.viewer-body{padding:0 0 40px}
+
+/* ---------- one section per selected path ---------- */
+.csec{border-bottom:1px solid var(--border)}
+.csec-head{
+  display:flex;align-items:center;gap:8px;padding:9px 16px;cursor:pointer;
+  background:var(--surface-2);min-width:0;
+}
+.csec-head:hover{background:var(--blue-tint)}
+.csec-tw{width:14px;flex:none;color:var(--text-3);font-size:13px;line-height:1;user-select:none;text-align:center}
+.csec-path{
+  font-family:var(--font-mono);font-size:12.5px;color:var(--text-1);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:40px;
+}
+.csec-head .grow{flex:1}
+.csec-chips,.csec-tog{display:flex;gap:6px;flex:none}
+/* Everything right of the path name is fixed-width, the same reason W22 fixed the
+   tree row's: the controls and the state land on one x at every section, so a
+   header that has a markdown toggle does not shunt the two beside it. */
+.csec-tog{min-width:62px;justify-content:flex-end}
+/* The state on the right. `absent`, `empty` and `null` mean different upstream
+   failures in LLM-pipeline data, so they are three visibly different words. */
+.csec-state{
+  font-family:var(--font-mono);font-size:11.5px;color:var(--text-3);flex:none;
+  width:108px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.csec-state.absent{color:var(--text-4);font-style:italic}
+.csec-body{padding:12px 16px 16px}
+
+/* A chip names an interpretation the viewer applied and nothing else in the tool
+   did. They are not decoration: with a value parsed, repaired and rendered as
+   markdown, nothing on screen is what is in the file, and these are the only
+   thing saying so. */
+.cchip{
+  flex:none;font-family:var(--font-mono);font-size:10.5px;line-height:17px;padding:0 7px;
+  border-radius:var(--r-pill);background:var(--blue-tint);color:var(--blue);
+}
+.cchip.warn{background:var(--red-tint);color:var(--red)}
+.cchip.ok{background:var(--green-tint);color:var(--green)}
+.csec-act{
+  border:1px solid var(--border);background:var(--surface);color:var(--text-3);
+  font:inherit;font-size:11px;border-radius:var(--r-sm);padding:2px 7px;cursor:pointer;flex:none;
+}
+.csec-act:hover{color:var(--text-1)}
+/* Collapse and "leave for the detail pane" are separate targets: a header that
+   does both is a misclick generator, and the misclick costs your reading place. */
+.csec-jump{font-size:12px;line-height:1}
+.md-toggle{display:flex;flex:none;border:1px solid var(--border);border-radius:var(--r-sm);overflow:hidden}
+.md-toggle button{
+  border:none;background:var(--surface);color:var(--text-3);font:inherit;font-size:11px;
+  font-family:var(--font-mono);padding:2px 8px;cursor:pointer;
+}
+.md-toggle button[aria-pressed="true"]{background:var(--blue);color:var(--on-accent)}
+
+/* ---------- value renderings ---------- */
+.cval{
+  font-family:var(--font-mono);font-size:12px;line-height:1.6;white-space:pre-wrap;
+  word-break:break-word;overflow-wrap:anywhere;
+}
+.cval.scalar{color:var(--text-1)}
+.clist{font-family:var(--font-mono);font-size:12px;color:var(--text-1);word-break:break-word}
+.clist .sep{color:var(--text-4);padding:0 4px}
+.ctable-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--r-sm)}
+.ctable{border-collapse:collapse;font-size:11.5px;width:100%}
+.ctable th{
+  text-align:left;padding:5px 8px;font-weight:600;color:var(--text-2);white-space:nowrap;
+  background:var(--surface-2);border-bottom:1px solid var(--border);font-family:var(--font-mono);
+}
+.ctable td{
+  padding:5px 8px;border-bottom:1px solid var(--border);vertical-align:top;
+  font-family:var(--font-mono);white-space:pre-wrap;word-break:break-word;
+  max-width:520px;color:var(--text-1);
+}
+.ctable td.idx,.ctable th.idx{color:var(--text-4);text-align:right;width:1%;white-space:nowrap}
+.ctable td.key{color:var(--text-2);white-space:nowrap;width:1%}
+.ctable tr:last-child td{border-bottom:none}
+/* Not truncation: the chip states what is inside and opens on click, so nothing
+   is hidden — only deferred. Three levels is where legibility runs out. */
+.cdeep{
+  border:1px dashed var(--border-strong);background:transparent;color:var(--text-3);
+  font-family:var(--font-mono);font-size:11px;border-radius:var(--r-sm);
+  padding:1px 7px;cursor:pointer;
+}
+.cdeep:hover{color:var(--text-1);border-color:var(--blue)}
+.cnote{font-size:11px;color:var(--text-3);margin-top:6px}
+.cmore{
+  border:none;background:transparent;color:var(--blue);font:inherit;font-size:11px;
+  font-weight:600;cursor:pointer;padding:4px 0;
+}
+
+/* ---------- the failure mark ----------
+   A span, not a caret: one character is hard to see, and for a value cut off at
+   EOF a caret past the last character shows nothing at all. */
+.cmark{background:var(--red-tint);color:var(--red);border-radius:3px;padding:0 1px;font-weight:600}
+.cfail{font-size:11.5px;color:var(--red);font-family:var(--font-mono);margin-bottom:6px}
+.crow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
+
+/* ---------- rendered markdown ----------
+   Only ever the output of DOMPurify over `marked`, under a page CSP that blocks
+   every outbound request at the source. Links render as text and images do not
+   render at all, so nothing here can reach the network. */
+.cmd{font-size:13px;line-height:1.65;color:var(--text-1);overflow-wrap:anywhere}
+.cmd > :first-child{margin-top:0}
+.cmd > :last-child{margin-bottom:0}
+.cmd h1,.cmd h2,.cmd h3,.cmd h4{font-size:14px;font-weight:600;margin:14px 0 6px}
+.cmd p{margin:0 0 10px}
+.cmd ul,.cmd ol{margin:0 0 10px;padding-left:22px}
+.cmd li{margin-bottom:4px}
+.cmd code{font-family:var(--font-mono);font-size:11.5px;background:var(--surface-2);
+  border-radius:var(--r-sm);padding:1px 4px}
+.cmd pre{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-sm);
+  padding:10px;overflow-x:auto;margin:0 0 10px}
+.cmd pre code{background:transparent;padding:0}
+.cmd blockquote{margin:0 0 10px;padding-left:12px;border-left:3px solid var(--border);color:var(--text-2)}
+.cmd table{border-collapse:collapse;font-size:12px;margin-bottom:10px}
+.cmd th,.cmd td{border:1px solid var(--border);padding:4px 8px;text-align:left}
+.cmd hr{border:none;border-top:1px solid var(--border);margin:12px 0}

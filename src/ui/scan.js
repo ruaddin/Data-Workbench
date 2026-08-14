@@ -22,6 +22,8 @@ function run(){
   state.pretty = new Set();
   state.whole = new Set();
   state.estimates = new Map();
+  state.viewerIndex = 0;               // W29 — position is per file
+  state.viewerCase = null;
   hide("fatal"); hide("status"); hide("warnPanel");
   $("run").disabled = true;
   opStart("scan");

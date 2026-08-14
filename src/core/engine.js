@@ -215,6 +215,22 @@ async function exportData(opts, emit){
   return {t:"blob", blob:new Blob(chunks, {type:type}), rows:rows, warnings:S.warnings};
 }
 
+/* One record, projected where the records already live (W29). Synchronous — W27's
+   awaiting exists for operations that can exceed a second, and this is one
+   `buildRow`. Projecting here rather than shipping the raw record is the W4
+   argument again: a record with one 2 MB unselected field costs nothing if it is
+   pruned before it crosses. It also means repairs are already applied, since
+   `S.records` is the mutated copy. */
+// Only the row crosses. The column list is `plan` over the same options, which the
+// main thread already computes to paint the sections before this reply arrives —
+// shipping a second copy would put 500 path strings on the wire per keypress to say
+// something both sides derive from one pure function.
+function caseAt(i, opts){
+  const c = pipeline.caseAt(S.records, opts, i);
+  if(!c) return {t:"fail", msg:"no record at index " + i};
+  return {t:"case", i:i, row:c.row};
+}
+
 /* ==========================================================================
    estimate (W28) — how long Unpack will take on this path.
 
@@ -335,7 +351,7 @@ async function estimate(path, emit){
 return {
   state:S,
   scan:scan, unpack:unpack, residue:residueBlob, merge:merge, exportData:exportData,
-  estimate:estimate,
+  estimate:estimate, caseAt:caseAt,
   cancel(){ S.cancelled = true; },
   slice(n){ return S.records.slice(0, n); }
 };

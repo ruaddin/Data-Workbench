@@ -26,7 +26,9 @@ $("tabDetail").addEventListener("click", function(){ state.sideTab = "detail"; p
 
 $("sortSel").addEventListener("change", function(e){ state.sort = e.target.value; render(); });
 $("absolute").addEventListener("change", function(e){ state.absolute = e.target.checked; render(); });
-$("redact").addEventListener("change", function(e){ state.redact = e.target.checked; render(); renderDetail(); });
+$("redact").addEventListener("change", function(e){
+  state.redact = e.target.checked; render(); renderDetail(); paintCaseRedact();
+});
 $("clearSel").addEventListener("click", function(){
   state.selected = new Set();
   state.selectionOrder = [];
@@ -84,5 +86,6 @@ document.addEventListener("keydown", function(e){
 paintTabs();
 paintSideTabs();
 paintSplitEnabled();
+paintViewBtn();
 renderDetail();
 doRenderPreview();

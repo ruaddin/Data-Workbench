@@ -25,6 +25,7 @@ self.onmessage = async function(e){
     if(d.c === "merge"){ emit(await DW.engine.merge(d.path, d.fixed, emit)); return; }
     if(d.c === "export"){ emit(await DW.engine.exportData(d.opts, emit)); return; }
     if(d.c === "estimate"){ emit(await DW.engine.estimate(d.path, emit)); return; }
+    if(d.c === "case"){ emit(DW.engine.caseAt(d.i, d.opts)); return; }
   }catch(err){
     emit({t:"fail", msg:(err && err.message) ? err.message : String(err)});
   }
@@ -41,6 +42,15 @@ const PREVIEW_COLS = 60;   // columns *rendered* as a table; the rest are named 
 const CELL_CAP = 200;
 const RESIDUE_INLINE = 50;
 
+/* W29 · the case viewer. Preview's CELL_CAP is right for a grid and wrong here —
+   reading the long value *is* this screen's job — but `fix.js` is written against
+   200 KB values and unbounded rendering drops them into the DOM whole. The window
+   counts characters, not bytes: the same unit as the fixer's budget and the size
+   column, so no new unit enters the tool. */
+const VIEW_WINDOW = 20000;
+const VIEW_ROWS = 200;      // table rows before `show all`
+const VIEW_DEPTH = 3;       // recursion depth before a container becomes a chip
+
 /* ---------- state — the main thread owns the intent, the Worker owns the data ---------- */
 
 const state = {
@@ -52,6 +62,14 @@ const state = {
   estimates:new Map(),       // path → W28 estimate, or the string "running"
   op:null,                   // the operation in flight, if any (W27)
   tab:"tree", sideTab:"preview", detailPath:null,
+  // W29 · the case viewer. Path-keyed state persists across navigation; case-keyed
+  // state does not. Only the path-keyed half is here — section collapse and the
+  // markdown choice, both of which mean the same thing on every record. Cell
+  // expansion, a display repair and a widened value window are case-keyed and live
+  // in the DOM, which navigation rebuilds; that is the rule expressed structurally
+  // rather than as a map somebody has to remember to clear.
+  viewer:false, viewerIndex:0, viewerCase:null,
+  viewerCollapsed:new Set(), viewerMd:new Set(),
   sort:"doc", absolute:false, redact:false, expanded:new Set(),
   emitFmt:"bare", emitScope:"selected", flatQuery:"",
   residue:{path:null, items:[]},

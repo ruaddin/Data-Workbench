@@ -51,6 +51,7 @@ const session = (function(){
       if(msg.c === "merge"){ cb(await DW.engine.merge(msg.path, msg.fixed, cb)); return; }
       if(msg.c === "export"){ cb(await DW.engine.exportData(msg.opts, cb)); return; }
       if(msg.c === "estimate"){ cb(await DW.engine.estimate(msg.path, cb)); return; }
+      if(msg.c === "case"){ cb(DW.engine.caseAt(msg.i, msg.opts)); return; }
     }catch(err){ cb({t:"fail", msg:(err && err.message) ? err.message : String(err)}); }
   }
 

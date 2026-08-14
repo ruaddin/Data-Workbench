@@ -505,7 +505,30 @@ function preview(records, opts, limit, sink){
   return {columns:cols, rows:rows, lines:lines, header: csv ? cols.map(csvCell).join(",") : null};
 }
 
+/* --- W29 · one record, projected, and nothing after that ---------------------
+   The case viewer's whole surface. It runs `buildRow` and stops: selection,
+   container packaging (W21) and unpacked paths (W9) are what a *record* is, and
+   flatten / split / line breaks / pretty-print / big-int quoting are what an
+   *export* is. Running the rest would make the viewer a rotation of Preview, and
+   with flatten on there would be no embedded object left to draw a table from.
+
+   Explode is ignored by construction rather than by comment: this takes a record
+   index and never calls `units()`. `buildRow` with a null ctx projects every
+   column from the record itself, which is the same value Preview shows with the
+   row unit set back to `record`.
+
+   `buildRow` is not exported instead, because that would put the plan/buildRow
+   pairing and the `{rec, ctx, ri}` unit shape into the engine, where a change to
+   `plan` would break a caller that is not this module's own.
+   --------------------------------------------------------------------------- */
+function caseAt(records, opts, i){
+  if(i < 0 || i >= records.length) return null;
+  const P = plan(opts, null);
+  return {columns: P.columns.map(function(c){ return c.path; }),
+          row: buildRow({rec:records[i], ctx:null, ri:i}, P)};
+}
+
 return {run:run, plan:plan, preview:preview, project:project, explodeUnits:explodeUnits,
-        csvCell:csvCell, chunkString:chunkString, alphaIndex:alphaIndex};
+        caseAt:caseAt, csvCell:csvCell, chunkString:chunkString, alphaIndex:alphaIndex};
 })();
 

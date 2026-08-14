@@ -14,6 +14,52 @@
 > dialog. When you edit here, paste the result there too — the inlined copy is the
 > one users read.
 
+## v1.5.0
+
+Read your data one record at a time, at full length, instead of squinting at a grid cell.
+
+- **A new Case viewer, opened from the rail.** Every screen so far answers a question
+  about the *file* — how big, which paths differ, what will the export write. None of
+  them answers the one you actually ask when something looks wrong: *what does this
+  record contain?* Preview comes closest and can't get there, because it's a table that
+  cuts every cell at 200 characters — so the 4 KB model output you opened it for is
+  exactly the thing it truncates. The viewer gives that field the whole width of the
+  page. It walks **every** record, not the first 200, with `‹ › ` and `Alt + ← →`.
+- **One section per path you ticked, always in the same place.** Sections come from your
+  selection rather than from the record, so the field you're reading doesn't move up and
+  down the page as you flip through cases. A path that isn't in this record says
+  `absent` — which is deliberately different from `empty` and from `null`, because
+  upstream those mean different things. Each section jumps to that path's detail pane
+  with one click.
+- **Embedded JSON shows up as a table.** Where a field holds JSON and it parses, you get
+  a real table — columns, rows, readable — chipped `parsed for display` so you know the
+  viewer did that, not the file. Nested structures tabulate too, three levels deep,
+  below which they collapse to `{…} 4 keys` and open on click.
+- **When it doesn't parse, the viewer shows you where it stopped.** The failure is
+  painted in the raw string — the offending token, or the quote that never closed, or
+  the brace with no partner. The caption says *parse stopped at char 1*, not *this
+  character is wrong*, because for something like `{{"key": "value"}` deleting either
+  brace fixes it and guessing which one you meant would be a lie dressed as precision.
+  Long values scroll to the error instead of making you hunt for it.
+- **And a `Repair for display` button, which repairs nothing.** It runs the fixer on that
+  one value so you can see whether it's readable, tells you which rule fired and what it
+  cost, and leaves your data completely alone. When you decide the path is worth fixing
+  for real, Unpack is one click away in the same place. A button that quietly patched one
+  record would put a fix in your export that appears nowhere in the tree, nowhere in the
+  residue report, and vanishes on rescan.
+- **Markdown renders, when you ask for it.** String sections carry a `raw │ md` toggle,
+  off by default and remembered per path. Off by default because `**score**` has two
+  asterisks in it and this is a tool for looking at data, not at prose — but one click,
+  and it stays on while you page through the file.
+- **The zero-network guarantee gets teeth.** Rendering markdown means turning untrusted
+  model output into a page, which is how a stray `<img>` in someone's data quietly phones
+  home. So the output is sanitized *and* the page now carries a policy the browser
+  enforces, blocking every outbound request at the source. The file still never leaves
+  your machine — that part hasn't changed, it's just no longer only a promise.
+- Adds the first two vendored libraries (`marked` and DOMPurify, ~70 KB). Maths and
+  syntax highlighting were considered and refused: KaTeX alone would more than triple the
+  download for everyone, to prettify a minority of fields.
+
 ## v1.4.0
 
 Before you click Unpack, the tool tells you what is in the file and how long it will take.

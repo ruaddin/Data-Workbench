@@ -9,6 +9,7 @@ function showResults(){
   renderSortOptions();
   render();
   renderPreview();
+  paintViewBtn();
 }
 
 function renderSummary(){

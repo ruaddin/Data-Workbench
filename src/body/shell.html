@@ -1,17 +1,20 @@
 <div class="app">
   <nav class="rail" aria-label="Tool">
     <div class="rail-group">
-      <div class="rail-icon" title="Data Workbench" aria-hidden="true">
+      <div class="rail-icon" data-tip="Data Workbench" aria-hidden="true">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h6"/><circle cx="18" cy="16" r="3"/></svg>
       </div>
-    </div>
-    <div class="rail-group">
       <div class="rail-sep"></div>
       <!-- W29 — a top-level screen, not a fourth tab: Tree / Flat / Stats are three
-           renderings of the skeleton, and a record reader is not a fourth one. -->
+           renderings of the skeleton, and a record reader is not a fourth one. It sits
+           under the mark rather than in the utility cluster for the same reason: it is
+           a screen you go to, not a switch like theme or a dialog like help. -->
       <button class="rail-btn" id="viewBtn" aria-label="Case viewer" disabled>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h6M7 13h10M7 17h4"/></svg>
       </button>
+    </div>
+    <div class="rail-group">
+      <div class="rail-sep"></div>
       <button class="rail-btn" id="themeBtn" aria-label="Switch to dark theme">
         <svg id="themeIcon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/></svg>
       </button>

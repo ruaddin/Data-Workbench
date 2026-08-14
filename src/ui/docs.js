@@ -1,11 +1,29 @@
 /* ---------- help and changelog (W23) ---------- */
 
-const VERSION = "1.5.0";
+const VERSION = "1.5.1";
 
 // W1 forbids runtime network requests and `file://` blocks fetch regardless, so the
 // changelog ships inside the page. It is the *text of* changelog.md, verbatim — the
 // two are kept in step by paste, which is what stops the in-app copy drifting.
 const CHANGELOG_MD = `
+## v1.5.1
+
+The rail says what its icons are.
+
+- **Hovering a rail icon names it.** Five unlabelled icons in a column is a guessing game
+  everyone plays exactly once and then memorises by position, which is fine until the
+  positions change — as they do below. The name comes from each button's own
+  \`aria-label\`, so the tooltip cannot drift from what a screen reader is told, and the
+  theme button reads *Switch to dark theme* or *Switch to light theme* depending on which
+  way the click will actually go.
+- **The case viewer moves up under the mark.** It was sitting in the bottom cluster with
+  theme, help and changelog — a switch and two dialogs, none of them somewhere you go.
+  The viewer is a screen, so it is now grouped as one, separated from the utilities
+  rather than filed among them.
+- **A disabled viewer button no longer lights up on hover.** It stays disabled until a
+  scan finishes, and in its new position it is the first thing under the cursor — where
+  a hover highlight was quietly promising a click that does nothing.
+
 ## v1.5.0
 
 Read your data one record at a time, at full length, instead of squinting at a grid cell.

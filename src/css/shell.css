@@ -8,14 +8,30 @@
 .rail-group{display:flex;flex-direction:column;align-items:center;gap:4px}
 .rail-icon{
   width:44px;height:44px;border-radius:var(--r-lg);display:flex;align-items:center;
-  justify-content:center;color:var(--blue);background:var(--blue-tint);
+  justify-content:center;color:var(--blue);background:var(--blue-tint);position:relative;
 }
 .rail-btn{
   width:40px;height:40px;border-radius:var(--r-lg);border:none;background:transparent;
   color:var(--text-3);display:flex;align-items:center;justify-content:center;cursor:pointer;
+  position:relative;
 }
 .rail-btn:hover{background:var(--surface);color:var(--text-2)}
+.rail-btn:disabled{color:var(--text-4);cursor:not-allowed}
+.rail-btn:disabled:hover{background:transparent;color:var(--text-4)}
 .rail-sep{width:28px;height:1px;background:var(--border);margin:6px 0}
+/* An icon-only rail says nothing about what its icons do. The name is the button's
+   own aria-label, so the tooltip cannot drift from what a screen reader is told --
+   including the theme button, whose label flips with the theme. */
+.rail-icon::after,.rail-btn::after{
+  position:absolute;left:calc(100% + 10px);top:50%;transform:translateY(-50%);
+  padding:5px 9px;border-radius:var(--r-sm);border:1px solid var(--border);
+  background:var(--surface);color:var(--text-1);box-shadow:var(--shadow-card);
+  font-size:12px;line-height:1.25;white-space:nowrap;
+  opacity:0;pointer-events:none;transition:opacity .12s ease .2s;
+}
+.rail-icon::after{content:attr(data-tip)}
+.rail-btn::after{content:attr(aria-label)}
+.rail-icon:hover::after,.rail-btn:hover::after,.rail-btn:focus-visible::after{opacity:1}
 main{flex:1; min-width:0; padding:40px 48px 80px; display:flex; flex-direction:column; gap:20px}
 
 .page-head{max-width:640px}

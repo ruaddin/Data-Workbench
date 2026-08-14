@@ -101,14 +101,30 @@ a{color:var(--blue)}
 .rail-group{display:flex;flex-direction:column;align-items:center;gap:4px}
 .rail-icon{
   width:44px;height:44px;border-radius:var(--r-lg);display:flex;align-items:center;
-  justify-content:center;color:var(--blue);background:var(--blue-tint);
+  justify-content:center;color:var(--blue);background:var(--blue-tint);position:relative;
 }
 .rail-btn{
   width:40px;height:40px;border-radius:var(--r-lg);border:none;background:transparent;
   color:var(--text-3);display:flex;align-items:center;justify-content:center;cursor:pointer;
+  position:relative;
 }
 .rail-btn:hover{background:var(--surface);color:var(--text-2)}
+.rail-btn:disabled{color:var(--text-4);cursor:not-allowed}
+.rail-btn:disabled:hover{background:transparent;color:var(--text-4)}
 .rail-sep{width:28px;height:1px;background:var(--border);margin:6px 0}
+/* An icon-only rail says nothing about what its icons do. The name is the button's
+   own aria-label, so the tooltip cannot drift from what a screen reader is told --
+   including the theme button, whose label flips with the theme. */
+.rail-icon::after,.rail-btn::after{
+  position:absolute;left:calc(100% + 10px);top:50%;transform:translateY(-50%);
+  padding:5px 9px;border-radius:var(--r-sm);border:1px solid var(--border);
+  background:var(--surface);color:var(--text-1);box-shadow:var(--shadow-card);
+  font-size:12px;line-height:1.25;white-space:nowrap;
+  opacity:0;pointer-events:none;transition:opacity .12s ease .2s;
+}
+.rail-icon::after{content:attr(data-tip)}
+.rail-btn::after{content:attr(aria-label)}
+.rail-icon:hover::after,.rail-btn:hover::after,.rail-btn:focus-visible::after{opacity:1}
 main{flex:1; min-width:0; padding:40px 48px 80px; display:flex; flex-direction:column; gap:20px}
 
 .page-head{max-width:640px}
@@ -602,17 +618,20 @@ dialog h2 .ver{font-family:var(--font-mono);font-size:11.5px;font-weight:400;col
 <div class="app">
   <nav class="rail" aria-label="Tool">
     <div class="rail-group">
-      <div class="rail-icon" title="Data Workbench" aria-hidden="true">
+      <div class="rail-icon" data-tip="Data Workbench" aria-hidden="true">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h6"/><circle cx="18" cy="16" r="3"/></svg>
       </div>
-    </div>
-    <div class="rail-group">
       <div class="rail-sep"></div>
       <!-- W29 — a top-level screen, not a fourth tab: Tree / Flat / Stats are three
-           renderings of the skeleton, and a record reader is not a fourth one. -->
+           renderings of the skeleton, and a record reader is not a fourth one. It sits
+           under the mark rather than in the utility cluster for the same reason: it is
+           a screen you go to, not a switch like theme or a dialog like help. -->
       <button class="rail-btn" id="viewBtn" aria-label="Case viewer" disabled>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h6M7 13h10M7 17h4"/></svg>
       </button>
+    </div>
+    <div class="rail-group">
+      <div class="rail-sep"></div>
       <button class="rail-btn" id="themeBtn" aria-label="Switch to dark theme">
         <svg id="themeIcon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/></svg>
       </button>
@@ -3569,12 +3588,30 @@ paintTheme();
 $("themeBtn").addEventListener("click", function(){ theme = theme === "dark" ? "light" : "dark"; paintTheme(); });
 /* ---------- help and changelog (W23) ---------- */
 
-const VERSION = "1.5.0";
+const VERSION = "1.5.1";
 
 // W1 forbids runtime network requests and `file://` blocks fetch regardless, so the
 // changelog ships inside the page. It is the *text of* changelog.md, verbatim — the
 // two are kept in step by paste, which is what stops the in-app copy drifting.
 const CHANGELOG_MD = `
+## v1.5.1
+
+The rail says what its icons are.
+
+- **Hovering a rail icon names it.** Five unlabelled icons in a column is a guessing game
+  everyone plays exactly once and then memorises by position, which is fine until the
+  positions change — as they do below. The name comes from each button's own
+  \`aria-label\`, so the tooltip cannot drift from what a screen reader is told, and the
+  theme button reads *Switch to dark theme* or *Switch to light theme* depending on which
+  way the click will actually go.
+- **The case viewer moves up under the mark.** It was sitting in the bottom cluster with
+  theme, help and changelog — a switch and two dialogs, none of them somewhere you go.
+  The viewer is a screen, so it is now grouped as one, separated from the utilities
+  rather than filed among them.
+- **A disabled viewer button no longer lights up on hover.** It stays disabled until a
+  scan finishes, and in its new position it is the first thing under the cursor — where
+  a hover highlight was quietly promising a click that does nothing.
+
 ## v1.5.0
 
 Read your data one record at a time, at full length, instead of squinting at a grid cell.
